@@ -157,6 +157,10 @@ def compute_data_universe(section1: Section1Discovery) -> float:
     revenues = section1.revenue_size or []
     contacts_per_company = max(1, int(section1.contacts_per_company or 1))
 
+    # If no filters are selected, treat universe as 0 (spec: estimation derives from filters).
+    if not (geo or industries or employees or revenues):
+        return 0.0
+
     geo_factor = min(1.0, max(0.05, len(geo) / TOTAL_REGIONS)) if geo else 1.0
     industry_factor = (
         min(1.0, max(0.04, len(industries) / TOTAL_INDUSTRIES)) if industries else 1.0
