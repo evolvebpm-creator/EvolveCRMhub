@@ -1,0 +1,94 @@
+{
+  "theme": "light",
+  "archetype": "4_swiss_high_contrast",
+  "design_direction": "Editorial Terminal / Old Money Tech",
+  "core_concept": "A severe, highly professional B2B lead generation operations tool. Rejects rounded corners and playful gradients in favor of authoritative, data-dense editorial layouts inspired by Bloomberg Terminal and high-end technical manuals.",
+  "colors": {
+    "background": "#F4F4F0",
+    "surface": "#FFFFFF",
+    "primary": "#0A0A0A",
+    "primary_foreground": "#FFFFFF",
+    "secondary": "#E8E8E3",
+    "secondary_foreground": "#0A0A0A",
+    "muted": "#F0F0EE",
+    "muted_foreground": "#666666",
+    "border": "#DCDCCF",
+    "accent_red": "#D92D20",
+    "accent_green": "#039855",
+    "chart_colors": [
+      "#0A0A0A",
+      "#666666",
+      "#A3A39C",
+      "#DCDCCF",
+      "#D92D20"
+    ]
+  },
+  "typography": {
+    "google_fonts_url": "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap",
+    "heading": {
+      "family": "'Cormorant Garamond', serif",
+      "weights": [
+        "400",
+        "600",
+        "700"
+      ],
+      "classes": "font-serif tracking-tight text-primary"
+    },
+    "body": {
+      "family": "'IBM Plex Sans', sans-serif",
+      "weights": [
+        "400",
+        "500",
+        "600"
+      ],
+      "classes": "font-sans leading-relaxed text-primary"
+    },
+    "mono": {
+      "family": "'IBM Plex Mono', monospace",
+      "weights": [
+        "400",
+        "500",
+        "600"
+      ],
+      "classes": "font-mono tracking-tight text-primary uppercase"
+    }
+  },
+  "layout_and_spacing": {
+    "container": "max-w-[1600px] mx-auto px-4 md:px-8",
+    "section_spacing": "gap-8 md:gap-12",
+    "card_padding": "p-6 md:p-8",
+    "grid_system": "The 'Control Room' Grid - grid-cols-1 md:grid-cols-3 lg:grid-cols-4 or strict 12-column layouts for dense data tables.",
+    "border_radius": "rounded-none",
+    "borders": "Expose the skeleton. Use 1px solid #DCDCCF for internal dividers. Use 2px or 3px solid #0A0A0A for major structural section headers to emulate print editorial design."
+  },
+  "components": {
+    "buttons": "Flat, rounded-none. Primary: bg-[#0A0A0A] text-white hover:bg-neutral-800. Secondary: bg-transparent border border-[#0A0A0A] text-[#0A0A0A] hover:bg-black/5.",
+    "inputs": "rounded-none, border-b-2 border-transparent bg-neutral-100 hover:bg-neutral-200 focus:bg-white focus:border-b-2 focus:border-[#0A0A0A] focus:ring-0 focus:outline-none px-4 py-2 font-mono text-sm. Completely reject standard rounded generic inputs.",
+    "tables": "Dense. 36px-48px row height. font-mono for all numbers. Right-align all numeric columns. border-y border-[#DCDCCF]. No vertical borders inside tables to improve scanning (Bloomberg style).",
+    "cards": "No shadow whatsoever. Background white. 1px border border-[#DCDCCF]. Sharp corners."
+  },
+  "icons": {
+    "library": "lucide-react",
+    "stroke_width": "1.5"
+  },
+  "interactions_and_motion": {
+    "hover": "Strictly functional. Background color shifts for table rows (hover:bg-neutral-50). No bouncing, no scaling.",
+    "focus": "High contrast indicator (border-black/ring-black).",
+    "transitions": "transition-colors duration-150"
+  },
+  "accessibility": {
+    "data_testid_requirement": "All interactive elements, buttons, form inputs, table rows, and export triggers MUST have data-testid attributes (e.g., 'rfp-submit-button', 'input-client-id').",
+    "contrast": "Ensure WCAG AA compliance. Muted text must be #666666 or darker on #F4F4F0 background."
+  },
+  "specific_page_instructions": {
+    "app_structure": "Single-page application containing a Dashboard Summary view and a main RFP Form Tracker view. Use a heavy typographic header (H1 Cormorant Garamond) as the navigation anchor.",
+    "dashboard_summary": "Top area: F-pattern KPIs (Total RFPs, Avg Conversion, Volume Delivered) with massive font-mono numbers. Charts: Recharts (Line/Bar/Donut) styled minimally with the strict black/grey/red color palette.",
+    "rfp_form_sections": [
+      "Section 1: RFP Discovery - Grid layout for inputs (Client ID, Campaign, Target Geo, etc.). Label text should be font-sans text-xs uppercase tracking-widest.",
+      "Section 2: Data Universe Estimation - Visually distinct. A large block with a stark black background and white font-mono text displaying the auto-computed number.",
+      "Section 3: Computation of Leads Qty - A dense data table. Rows for MQL types. Columns for CPC, Lead Counts, CPL, Total Cost. Total Cost and CPL must auto-calculate aggressively on input blur/change.",
+      "Section 4: RFP Status - Minimalist toggles (Converted Y/N) and strict date inputs."
+    ],
+    "export_functionality": "Prominent 'Export CSV' and 'Export Excel' buttons grouped together. Style them technically (e.g., '[ EXPORT .CSV ]' button text in mono font)."
+  }
+}
