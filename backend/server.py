@@ -223,12 +223,13 @@ def compute_section3(section3: Section3Computation) -> Section3Computation:
     for r in section3.rows:
         mult = LEAD_MULTIPLIERS.get(r.lead_type, 1.0)
         cpc = float(r.cpc or 0)
-        # Lead Counts = Data Counts × conversion-rate(source, lead_type) / 100
+        # Lead Counts = Data Counts × conversion-rate(source, lead_type) / 100.
+        # If source not selected OR data_counts <= 0 → lead_counts = 0 (spec).
         if source and data_counts > 0:
             pct = float(rate_map.get(r.lead_type, 0))
             lc = round(data_counts * pct / 100.0, 0)
         else:
-            lc = float(r.lead_counts or 0)  # fallback to user-entered if source not set
+            lc = 0.0
         cpl = round(cpc * mult, 2)
         tcost = round(cpl * lc, 2)
         new_rows.append(
