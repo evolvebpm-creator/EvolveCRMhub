@@ -33,7 +33,23 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
         setRfp((prev) => ({
           ...prev,
           section2: res.section2,
-          section3: res.section3,
+          section3: {
+            ...prev.section3,
+            // Preserve user-editable fields, merge only auto-computed values per row
+            rows: prev.section3.rows.map((row) => {
+              const computed = res.section3.rows.find((c) => c.lead_type === row.lead_type);
+              if (!computed) return row;
+              return {
+                ...row,
+                lead_counts: computed.lead_counts,
+                cpl: computed.cpl,
+                total_cost: computed.total_cost,
+              };
+            }),
+            grand_total_leads: res.section3.grand_total_leads,
+            grand_total_cost: res.section3.grand_total_cost,
+            blended_cpl: res.section3.blended_cpl,
+          },
         }));
       } catch (e) {
         // ignore preview errors silently
@@ -41,10 +57,11 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
     })();
     return () => { active = false; };
     // We trigger when inputs that affect computation change; debounce reduces churn.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     JSON.stringify(debounced.section1),
-    JSON.stringify(debounced.section3.rows.map(r => ({ t: r.lead_type, c: r.cpc, l: r.lead_counts }))),
+    debounced.section3.data_source,
+    debounced.section3.data_counts,
+    JSON.stringify(debounced.section3.rows.map(r => ({ t: r.lead_type, c: r.cpc }))),
   ]);
 
   const updateS1 = (key, value) =>
@@ -57,6 +74,8 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
     setRfp((p) => ({
       ...p, section1: { ...p.section1, campaign_type_config: { ...p.section1.campaign_type_config, [k]: v } },
     }));
+  const updateS3 = (k, v) =>
+    setRfp((p) => ({ ...p, section3: { ...p.section3, [k]: v } }));
   const updateS4 = (k, v) =>
     setRfp((p) => ({ ...p, section4: { ...p.section4, [k]: v } }));
   const updateRow = (idx, k, v) =>
@@ -329,45 +348,78 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
 
       {/* ============== SECTION 3: LEAD COMPUTATION ============== */}
       <Section title="Section 03 — Computation of Leads Quantity to be Delivered">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-5 mb-6">
+          <Field label="Data Source for Universe">
+            <select
+              data-testid="input-data-source"
+              className="evcl-input"
+              value={s3.data_source || ""}
+              onChange={(e) => updateS3("data_source", e.target.value)}
+            >
+              <option value="">— Select Source —</option>
+              {(ref.data_sources || []).map((src) => (
+                <option key={src} value={src}>{src}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Data Counts (manual entry)">
+            <input
+              type="number" min="0"
+              data-testid="input-data-counts"
+              className="evcl-input"
+              value={s3.data_counts || 0}
+              onChange={(e) => updateS3("data_counts", Number(e.target.value) || 0)}
+              placeholder="Enter number manually"
+            />
+          </Field>
+          <div className="self-end">
+            <div className="font-label mb-2">Lead Counts derive from</div>
+            <div className="font-mono-tight text-sm bg-[#F0F0EE] px-3 py-2 border-l-2 border-[#0A0A0A]">
+              {s3.data_source
+                ? `${s3.data_source} × Data Counts × conversion %`
+                : "Pick a source to auto-compute Lead Counts"}
+            </div>
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="evcl-table" data-testid="lead-computation-table">
             <thead>
               <tr>
                 <th>Lead Type</th>
-                <th className="num">CPC ($)</th>
-                <th className="num">Lead Counts</th>
+                <th className="num">Conv. %</th>
+                <th className="num">CPC</th>
+                <th className="num">Lead Counts · auto</th>
                 <th className="num">CPL ($) · auto</th>
                 <th className="num">Total Cost · auto</th>
               </tr>
             </thead>
             <tbody>
-              {s3.rows.map((r, idx) => (
-                <tr key={r.lead_type} data-testid={`lead-row-${r.lead_type}`}>
-                  <td className="font-mono-tight uppercase">{r.lead_type}</td>
-                  <td className="num">
-                    <input
-                      type="number" min="0" step="0.01"
-                      data-testid={`input-cpc-${r.lead_type}`}
-                      className="evcl-input text-right"
-                      value={r.cpc}
-                      onChange={(e) => updateRow(idx, "cpc", e.target.value)}
-                    />
-                  </td>
-                  <td className="num">
-                    <input
-                      type="number" min="0"
-                      data-testid={`input-leadcount-${r.lead_type}`}
-                      className="evcl-input text-right"
-                      value={r.lead_counts}
-                      onChange={(e) => updateRow(idx, "lead_counts", e.target.value)}
-                    />
-                  </td>
-                  <td className="num" data-testid={`cell-cpl-${r.lead_type}`}>{fmtCurrency(r.cpl)}</td>
-                  <td className="num" data-testid={`cell-total-${r.lead_type}`}>{fmtCurrency(r.total_cost)}</td>
-                </tr>
-              ))}
+              {s3.rows.map((r, idx) => {
+                const pct = (ref.conversion_rates && s3.data_source)
+                  ? (ref.conversion_rates[s3.data_source] || {})[r.lead_type] ?? 0
+                  : 0;
+                return (
+                  <tr key={r.lead_type} data-testid={`lead-row-${r.lead_type}`}>
+                    <td className="font-mono-tight uppercase">{r.lead_type}</td>
+                    <td className="num text-[#666]">{pct ? `${pct}%` : "—"}</td>
+                    <td className="num">
+                      <input
+                        type="number" min="0" step="0.01"
+                        data-testid={`input-cpc-${r.lead_type}`}
+                        className="evcl-input text-right"
+                        value={r.cpc}
+                        onChange={(e) => updateRow(idx, "cpc", e.target.value)}
+                      />
+                    </td>
+                    <td className="num" data-testid={`cell-leadcount-${r.lead_type}`}>{fmtNum(r.lead_counts)}</td>
+                    <td className="num" data-testid={`cell-cpl-${r.lead_type}`}>{fmtCurrency(r.cpl)}</td>
+                    <td className="num" data-testid={`cell-total-${r.lead_type}`}>{fmtCurrency(r.total_cost)}</td>
+                  </tr>
+                );
+              })}
               <tr className="border-t-2 border-[#0A0A0A] font-semibold">
                 <td className="font-label">Totals</td>
+                <td></td>
                 <td></td>
                 <td className="num" data-testid="grand-total-leads">{fmtNum(s3.grand_total_leads)}</td>
                 <td className="num" data-testid="blended-cpl">{fmtCurrency(s3.blended_cpl)} <span className="text-[#666] font-label ml-1">blended</span></td>
@@ -377,7 +429,7 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
           </table>
         </div>
         <div className="font-mono-tight text-xs text-[#666] mt-3">
-          CPL is auto-derived: CPL = CPC × lead-type complexity multiplier. Total = CPL × Lead Counts.
+          Lead Counts = Data Counts × source conversion %. CPL = CPC × lead-type complexity multiplier. Total = CPL × Lead Counts.
         </div>
       </Section>
 

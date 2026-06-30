@@ -64,6 +64,40 @@ REVENUE_BAND_WEIGHT = {
     "$200M-$1B": 0.08, "$1B-$10B": 0.05, "$10B+": 0.02,
 }
 
+# Data sources available for Section 3 lead computation.
+DATA_SOURCES = ["LinkedIn", "Prospeo", "Apollo", "VibeProspect"]
+
+# Per-source conversion rates (% of Data Counts → leads of each type).
+# LinkedIn rates default to VibeProspect (rich first-party-ish data) — adjust as needed.
+CONVERSION_RATES: Dict[str, Dict[str, float]] = {
+    "VibeProspect": {
+        "MQL+1CQ": 45, "MQL+2CQ": 45, "MQL+3CQ": 45,
+        "MQL+1QQ": 35, "MQL+2QQ": 35, "MQL+3QQ": 35,
+        "MQL SINGLE TOUCH": 55,
+        "MQL DOUBLE TOUCH": 45,
+        "MQL MULTI-TOUCH": 35,
+        "HQL": 25, "BANT": 10, "AG": 3,
+    },
+    "Prospeo": {
+        "MQL+1CQ": 35, "MQL+2CQ": 35, "MQL+3CQ": 35,
+        "MQL+1QQ": 30, "MQL+2QQ": 30, "MQL+3QQ": 30,
+        "MQL SINGLE TOUCH": 35,
+        "MQL DOUBLE TOUCH": 30,
+        "MQL MULTI-TOUCH": 25,
+        "HQL": 20, "BANT": 5, "AG": 3,
+    },
+    "Apollo": {
+        "MQL+1CQ": 25, "MQL+2CQ": 25, "MQL+3CQ": 25,
+        "MQL+1QQ": 20, "MQL+2QQ": 20, "MQL+3QQ": 20,
+        "MQL SINGLE TOUCH": 25,
+        "MQL DOUBLE TOUCH": 20,
+        "MQL MULTI-TOUCH": 20,
+        "HQL": 15, "BANT": 5, "AG": 3,
+    },
+}
+# LinkedIn defaults to the same rates as VibeProspect until provided otherwise.
+CONVERSION_RATES["LinkedIn"] = dict(CONVERSION_RATES["VibeProspect"])
+
 # ----------------------- Models ----------------------- #
 
 
@@ -105,13 +139,15 @@ class Section2Universe(BaseModel):
 
 class LeadRow(BaseModel):
     lead_type: str
-    cpc: float = 0
-    lead_counts: float = 0
+    cpc: float = 0  # numerical value (not currency)
+    lead_counts: float = 0  # auto-computed from data_source + data_counts
     cpl: float = 0  # auto: cpc * multiplier
     total_cost: float = 0  # auto: cpl * lead_counts
 
 
 class Section3Computation(BaseModel):
+    data_source: Optional[str] = None  # LinkedIn / Prospeo / Apollo / VibeProspect
+    data_counts: float = 0  # manually entered
     rows: List[LeadRow] = Field(default_factory=list)
     grand_total_leads: float = 0
     grand_total_cost: float = 0
@@ -176,19 +212,29 @@ def compute_data_universe(section1: Section1Discovery) -> float:
 
 
 def compute_section3(section3: Section3Computation) -> Section3Computation:
-    """Auto-fill CPL & totals for every row."""
+    """Auto-fill lead counts (from data source × data counts) + CPL + totals per row."""
+    source = section3.data_source if section3.data_source in CONVERSION_RATES else None
+    data_counts = float(section3.data_counts or 0)
+    rate_map = CONVERSION_RATES.get(source, {}) if source else {}
+
     total_leads = 0.0
     total_cost = 0.0
     new_rows: List[LeadRow] = []
     for r in section3.rows:
         mult = LEAD_MULTIPLIERS.get(r.lead_type, 1.0)
-        cpl = round(float(r.cpc or 0) * mult, 2)
-        lc = float(r.lead_counts or 0)
+        cpc = float(r.cpc or 0)
+        # Lead Counts = Data Counts × conversion-rate(source, lead_type) / 100
+        if source and data_counts > 0:
+            pct = float(rate_map.get(r.lead_type, 0))
+            lc = round(data_counts * pct / 100.0, 0)
+        else:
+            lc = float(r.lead_counts or 0)  # fallback to user-entered if source not set
+        cpl = round(cpc * mult, 2)
         tcost = round(cpl * lc, 2)
         new_rows.append(
             LeadRow(
                 lead_type=r.lead_type,
-                cpc=float(r.cpc or 0),
+                cpc=cpc,
                 lead_counts=lc,
                 cpl=cpl,
                 total_cost=tcost,
@@ -198,6 +244,8 @@ def compute_section3(section3: Section3Computation) -> Section3Computation:
         total_cost += tcost
     blended = round(total_cost / total_leads, 2) if total_leads > 0 else 0.0
     return Section3Computation(
+        data_source=section3.data_source,
+        data_counts=data_counts,
         rows=new_rows,
         grand_total_leads=round(total_leads, 2),
         grand_total_cost=round(total_cost, 2),
@@ -277,6 +325,8 @@ async def get_reference():
         ],
         "lead_types": LEAD_TYPES,
         "lead_multipliers": LEAD_MULTIPLIERS,
+        "data_sources": DATA_SOURCES,
+        "conversion_rates": CONVERSION_RATES,
     }
 
 
@@ -424,6 +474,8 @@ def _flat_row(d: dict) -> dict:
         "num_cq": ctc.get("num_cq", 0),
         "num_touches": ctc.get("num_touches", 0),
         "data_universe": s2.get("data_universe", 0),
+        "data_source": s3.get("data_source", ""),
+        "data_counts": s3.get("data_counts", 0),
         "grand_total_leads": s3.get("grand_total_leads", 0),
         "grand_total_cost": s3.get("grand_total_cost", 0),
         "blended_cpl": s3.get("blended_cpl", 0),

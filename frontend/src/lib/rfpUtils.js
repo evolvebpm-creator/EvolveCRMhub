@@ -39,6 +39,8 @@ export const emptyRFP = () => ({
   },
   section2: { data_universe: 0 },
   section3: {
+    data_source: "",
+    data_counts: 0,
     rows: LEAD_TYPES.map((lt) => ({
       lead_type: lt, cpc: 0, lead_counts: 0, cpl: 0, total_cost: 0,
     })),
