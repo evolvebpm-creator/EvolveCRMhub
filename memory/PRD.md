@@ -46,8 +46,9 @@ Build an app per the attached RFP Master Tracking spec image (Section 1 RFP Disc
 - **Iter 1**: 4-section RFP form; multi-select geo/industries/revenue/employee/job-function/title; auto Universe; auto CPL; list; edit/delete; Dashboard KPIs + Recharts; CSV/XLSX export; editorial design system.
 - **Iter 2**: Section 3 gained Data Source + Data Counts inputs; Lead Counts auto-derived from conversion matrix; CPC column dropped `$`; race-safe preview merge.
 - **Iter 3 (current)**: (a) Target Job Titles is now a paste-friendly TEXTAREA (one per line, chip count shown); (b) Type of Campaign is now MULTI-SELECT (`section1.campaign_type_config.types: List[str]`); (c) CPC removed from Section 3 — CPL is the direct numeric input; (d) Only lead-type rows matching selected campaign types are calculated (non-active rows dimmed to 40% opacity in UI). Removed dead `LEAD_MULTIPLIERS`/`lead_multipliers` API surface.
+- **Iter 4 (current)**: (a) `RFP Master Tracking Sheet Ref` is auto-generated as `EV_Q_{NNN}_{YYYYMMDD}` where NNN is a sequential counter and YYYYMMDD is derived from "Date of RFP Response". Server-authoritative on POST/PUT; UI shows read-only live preview. (b) Section 1 field relabelled `Date of RFP Response`. (c) New separate field `Job Seniority (LinkedIn levels)` as multi-select (`section1.target_job_seniority: List[str]`); Target Job Titles kept as paste textarea for custom entries.
 - **Deploy**: production live at https://app-from-specs-9.emergent.host.
-- **Testing**: 15/15 backend pytest + full Playwright E2E pass (`/app/test_reports/iteration_3.json`, 100%/100%).
+- **Testing**: 25/25 backend pytest + full Playwright E2E pass (`/app/test_reports/iteration_4.json`, 100%/100%).
 
 ## Backlog
 - P1: Validate `end_date ≥ start_date` in form.
@@ -55,6 +56,7 @@ Build an app per the attached RFP Master Tracking spec image (Section 1 RFP Disc
 - P2: Bulk XLSX import; RFP-vs-RFP compare view.
 - P2: Per-RFP override of conversion-rate matrix (currently global).
 - P2: Custom LinkedIn-specific conversion rates.
+- P2: Atomic sequence counter (findAndModify) for `next_seq_num()` — current implementation uses `count_documents+1` which is not concurrency-safe. Fine for single-tenant internal ops.
 - P2: Auth (JWT or Emergent Google) if multi-tenant needed.
 
 ## Suggested enhancement
