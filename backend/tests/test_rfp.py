@@ -73,8 +73,8 @@ def sample_payload(reference, types=None, data_source="Apollo", data_counts=1000
 class TestReference:
     def test_reference_keys(self, reference):
         for k in ["geographies", "industries", "revenue_sizes", "employee_sizes",
-                  "job_functions", "job_titles", "campaign_types", "lead_types",
-                  "lead_multipliers", "data_sources", "conversion_rates"]:
+                  "job_functions", "job_titles", "job_seniorities", "campaign_types",
+                  "lead_types", "data_sources", "conversion_rates"]:
             assert k in reference, f"missing {k}"
         assert len(reference["lead_types"]) == 12
 

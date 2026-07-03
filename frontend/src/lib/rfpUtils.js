@@ -32,6 +32,7 @@ export const emptyRFP = () => ({
     employee_size: [],
     target_job_functions: [],
     target_job_titles: [],
+    target_job_seniority: [],
     contacts_per_company: 1,
     exclusions: "",
     suppression_file: "",

@@ -9,6 +9,8 @@ export const fetchReference = async () => (await api.get("/reference")).data;
 export const fetchRfps = async (params = {}) => (await api.get("/rfps", { params })).data;
 export const fetchRfp = async (id) => (await api.get(`/rfps/${id}`)).data;
 export const fetchStats = async () => (await api.get("/rfps/stats")).data;
+export const fetchNextRef = async (date_of_rfp) =>
+  (await api.get("/rfps/next-ref", { params: date_of_rfp ? { date_of_rfp } : {} })).data;
 export const createRfp = async (payload) => (await api.post("/rfps", payload)).data;
 export const updateRfp = async (id, payload) => (await api.put(`/rfps/${id}`, payload)).data;
 export const deleteRfp = async (id) => (await api.delete(`/rfps/${id}`)).data;

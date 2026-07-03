@@ -163,6 +163,7 @@ class Section1Discovery(BaseModel):
     employee_size: List[str] = Field(default_factory=list)
     target_job_functions: List[str] = Field(default_factory=list)
     target_job_titles: List[str] = Field(default_factory=list)
+    target_job_seniority: List[str] = Field(default_factory=list)
     contacts_per_company: Optional[int] = 1
     exclusions: Optional[str] = None  # free text: company / industry / job functions / job titles
     suppression_file: Optional[str] = None  # company names / email ids
@@ -359,6 +360,11 @@ async def get_reference():
             "C-Level (CEO, CFO, CTO, CIO, CMO, COO)", "VP", "Director",
             "Head of", "Manager", "Senior Manager", "Lead", "Specialist",
         ],
+        "job_seniorities": [
+            "Owner", "Partner", "C-Level (CXO)", "Vice President",
+            "Director", "Head", "Manager", "Senior",
+            "Individual Contributor", "Entry", "Training", "Unpaid",
+        ],
         "campaign_types": [
             "MQL", "MQL with CQ", "MQL with QQ", "HQL", "BANT",
             "Appointment-setup", "Social Media Spend",
@@ -373,6 +379,30 @@ async def get_reference():
 # ----------------------- CRUD Endpoints ----------------------- #
 
 
+def format_master_ref(seq: int, date_of_rfp: Optional[str]) -> str:
+    """Build the Master Tracking Sheet Ref: EV_Q_{NNN}_{YYYYMMDD}.
+    date_of_rfp is the "date of RFP response" (Section 1). If empty, today's date is used.
+    """
+    date_part = (date_of_rfp or "").replace("-", "").strip()
+    if not date_part:
+        date_part = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return f"EV_Q_{seq:03d}_{date_part}"
+
+
+async def next_seq_num() -> int:
+    return int(await db.rfps.count_documents({})) + 1
+
+
+@api_router.get("/rfps/next-ref")
+async def get_next_ref(date_of_rfp: Optional[str] = Query(default=None)):
+    seq = await next_seq_num()
+    return {
+        "seq": seq,
+        "prefix": f"EV_Q_{seq:03d}",
+        "preview": format_master_ref(seq, date_of_rfp),
+    }
+
+
 @api_router.get("/")
 async def root():
     return {"message": "RFP Master Tracking API"}
@@ -380,6 +410,11 @@ async def root():
 
 @api_router.post("/rfps", response_model=RFP)
 async def create_rfp(payload: RFPCreate):
+    # Always auto-populate the Master Tracking Sheet Ref on create.
+    seq = await next_seq_num()
+    payload.section1.rfp_master_tracking_sheet = format_master_ref(
+        seq, payload.section1.date_of_rfp
+    )
     payload = apply_compute(payload)
     rfp = RFP(**payload.model_dump())
     await db.rfps.insert_one(rfp_to_doc(rfp))
@@ -506,6 +541,7 @@ def _flat_row(d: dict) -> dict:
         "employee_size": ", ".join(s1.get("employee_size") or []),
         "target_job_functions": ", ".join(s1.get("target_job_functions") or []),
         "target_job_titles": ", ".join(s1.get("target_job_titles") or []),
+        "target_job_seniority": ", ".join(s1.get("target_job_seniority") or []),
         "contacts_per_company": s1.get("contacts_per_company", 1),
         "exclusions": s1.get("exclusions", ""),
         "suppression_file": s1.get("suppression_file", ""),
@@ -622,6 +658,19 @@ async def update_rfp(rfp_id: str, payload: RFPUpdate):
     existing = await db.rfps.find_one({"id": rfp_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="RFP not found")
+    # Keep existing sequence number; refresh date suffix if date_of_rfp changed.
+    existing_ref = ((existing.get("section1") or {}).get("rfp_master_tracking_sheet") or "")
+    seq = None
+    if existing_ref.startswith("EV_Q_"):
+        parts = existing_ref.split("_")
+        # EV_Q_{NNN}_{YYYYMMDD}
+        if len(parts) >= 3 and parts[2].isdigit():
+            seq = int(parts[2])
+    if seq is None:
+        seq = await next_seq_num()
+    payload.section1.rfp_master_tracking_sheet = format_master_ref(
+        seq, payload.section1.date_of_rfp
+    )
     payload = apply_compute(payload)
     updated = RFP(
         id=rfp_id,

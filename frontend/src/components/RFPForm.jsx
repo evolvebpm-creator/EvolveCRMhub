@@ -1,7 +1,7 @@
 import React from "react";
 import MultiSelect from "./MultiSelect";
 import { LEAD_TYPES, buildClientIds, emptyRFP, fmtNum, fmtCurrency, useDebounce } from "../lib/rfpUtils";
-import { previewCompute, createRfp, updateRfp } from "../lib/apiClient";
+import { previewCompute, createRfp, updateRfp, fetchNextRef } from "../lib/apiClient";
 import { Save, RotateCcw, Trash2 } from "lucide-react";
 
 const CLIENT_IDS = buildClientIds();
@@ -20,8 +20,32 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
   const [rfp, setRfp] = React.useState(initialRfp || emptyRFP());
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState(null);
+  const [nextSeq, setNextSeq] = React.useState(null); // for NEW RFPs only
 
   const debounced = useDebounce(rfp, 300);
+
+  // Fetch next sequential number ONCE for new-RFP flow so we can live-preview the ref.
+  React.useEffect(() => {
+    if (initialRfp) return;
+    fetchNextRef().then((r) => setNextSeq(r.seq)).catch(() => setNextSeq(null));
+  }, [initialRfp]);
+
+  // Compute the Master Tracking Sheet Ref (live preview) — EV_Q_{NNN}_{YYYYMMDD}.
+  const computeRef = React.useCallback(() => {
+    const existing = rfp.section1.rfp_master_tracking_sheet || "";
+    // Extract seq from existing ref if editing, else use nextSeq.
+    let seq = null;
+    const m = existing.match(/^EV_Q_(\d{3,})/);
+    if (m) seq = parseInt(m[1], 10);
+    if (seq == null) seq = nextSeq;
+    if (seq == null) return "EV_Q_… (loading)";
+    const seqStr = String(seq).padStart(3, "0");
+    const d = (rfp.section1.date_of_rfp || "").replace(/-/g, "");
+    const dateStr = d || new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    return `EV_Q_${seqStr}_${dateStr}`;
+  }, [rfp.section1.rfp_master_tracking_sheet, rfp.section1.date_of_rfp, nextSeq]);
+
+  const previewRef = computeRef();
 
   // Auto-compute Section 2 + Section 3 via backend preview
   React.useEffect(() => {
@@ -177,16 +201,19 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
       {/* ============== SECTION 1: RFP DISCOVERY ============== */}
       <Section title="Section 01 — RFP Discovery">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-5">
-          <Field label="RFP Master Tracking Sheet Reference">
+          <Field label="RFP Master Tracking Sheet Ref · auto-generated">
             <input
               data-testid="input-rfp-master-sheet"
-              className="evcl-input"
-              value={s1.rfp_master_tracking_sheet}
-              onChange={(e) => updateS1("rfp_master_tracking_sheet", e.target.value)}
-              placeholder="Tracker reference…"
+              className="evcl-input font-mono-tight"
+              value={previewRef}
+              readOnly
+              title="EV_Q_{sequential} + Date of RFP (YYYYMMDD)"
             />
+            <div className="font-mono-tight text-xs text-[#666] mt-1">
+              Auto-populated from sequence + Date of RFP response
+            </div>
           </Field>
-          <Field label="Date of RFP">
+          <Field label="Date of RFP Response">
             <input
               type="date"
               data-testid="input-date-of-rfp"
@@ -284,7 +311,16 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
           <Field label="Employee Size (LinkedIn bands)">
             <MultiSelect id="employee" options={ref.employee_sizes || []} value={s1.employee_size} onChange={(v) => updateS1("employee_size", v)} placeholder="Employee bands…" />
           </Field>
-          <Field label="Target Job Titles / Seniority · paste one per line">
+          <Field label="Job Seniority (LinkedIn levels)">
+            <MultiSelect
+              id="job-seniority"
+              options={ref.job_seniorities || []}
+              value={s1.target_job_seniority || []}
+              onChange={(v) => updateS1("target_job_seniority", v)}
+              placeholder="Select seniority levels…"
+            />
+          </Field>
+          <Field label="Target Job Titles · paste one per line" span={2}>
             <textarea
               data-testid="input-job-titles"
               className="evcl-input"
