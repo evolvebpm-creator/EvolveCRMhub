@@ -38,17 +38,6 @@ LEAD_TYPES = [
 
 # Cost multipliers applied to CPC to derive CPL for each lead type.
 # Higher complexity = higher multiplier.
-LEAD_MULTIPLIERS: Dict[str, float] = {
-    "MQL+1CQ": 1.2, "MQL+2CQ": 1.4, "MQL+3CQ": 1.6,
-    "MQL+1QQ": 1.5, "MQL+2QQ": 1.8, "MQL+3QQ": 2.2,
-    "MQL SINGLE TOUCH": 1.0,
-    "MQL DOUBLE TOUCH": 1.3,
-    "MQL MULTI-TOUCH": 1.7,
-    "HQL": 2.5,
-    "BANT": 3.5,
-    "AG": 5.0,
-}
-
 # Universe estimation reference values (approximate global LinkedIn order-of-magnitude)
 GLOBAL_COMPANY_BASE = 60_000_000  # rough global addressable company universe
 TOTAL_REGIONS = 7  # 7 continents/regions reference
@@ -376,7 +365,6 @@ async def get_reference():
             "Single touch", "Double touch", "Multi touch",
         ],
         "lead_types": LEAD_TYPES,
-        "lead_multipliers": LEAD_MULTIPLIERS,
         "data_sources": DATA_SOURCES,
         "conversion_rates": CONVERSION_RATES,
     }
