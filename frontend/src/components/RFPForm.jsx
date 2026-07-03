@@ -35,14 +35,13 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
           section2: res.section2,
           section3: {
             ...prev.section3,
-            // Preserve user-editable fields, merge only auto-computed values per row
+            // Preserve user-editable fields; merge only auto-computed values per row
             rows: prev.section3.rows.map((row) => {
               const computed = res.section3.rows.find((c) => c.lead_type === row.lead_type);
               if (!computed) return row;
               return {
                 ...row,
                 lead_counts: computed.lead_counts,
-                cpl: computed.cpl,
                 total_cost: computed.total_cost,
               };
             }),
@@ -61,7 +60,7 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
     JSON.stringify(debounced.section1),
     debounced.section3.data_source,
     debounced.section3.data_counts,
-    JSON.stringify(debounced.section3.rows.map(r => ({ t: r.lead_type, c: r.cpc }))),
+    JSON.stringify(debounced.section3.rows.map(r => ({ t: r.lead_type, c: r.cpl }))),
   ]);
 
   const updateS1 = (key, value) =>
@@ -106,6 +105,31 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
   const s3 = rfp.section3;
   const s4 = rfp.section4;
   const ref = reference || {};
+
+  // Derive the set of "active" lead types based on Campaign Types selected in Section 1.
+  const campaignTypesSelected = s1.campaign_type_config.types || [];
+  const nCq = Number(s1.campaign_type_config.num_cq || 0);
+  const nQq = Number(s1.campaign_type_config.num_qq || 0);
+  const targetedSet = new Set();
+  const mapCampaign = (t) => {
+    if (t === "MQL with CQ") {
+      if (nCq >= 1 && nCq <= 3) return [`MQL+${nCq}CQ`];
+      return ["MQL+1CQ", "MQL+2CQ", "MQL+3CQ"];
+    }
+    if (t === "MQL with QQ") {
+      if (nQq >= 1 && nQq <= 3) return [`MQL+${nQq}QQ`];
+      return ["MQL+1QQ", "MQL+2QQ", "MQL+3QQ"];
+    }
+    if (t === "Single touch") return ["MQL SINGLE TOUCH"];
+    if (t === "Double touch") return ["MQL DOUBLE TOUCH"];
+    if (t === "Multi touch") return ["MQL MULTI-TOUCH"];
+    if (t === "HQL") return ["HQL"];
+    if (t === "BANT") return ["BANT"];
+    if (t === "Appointment-setup") return ["AG"];
+    if (t === "MQL") return ["MQL SINGLE TOUCH"];
+    return [];
+  };
+  campaignTypesSelected.forEach((t) => mapCampaign(t).forEach((lt) => targetedSet.add(lt)));
 
   return (
     <div data-testid="rfp-form" className="space-y-2">
@@ -260,8 +284,24 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
           <Field label="Employee Size (LinkedIn bands)">
             <MultiSelect id="employee" options={ref.employee_sizes || []} value={s1.employee_size} onChange={(v) => updateS1("employee_size", v)} placeholder="Employee bands…" />
           </Field>
-          <Field label="Target Job Titles / Seniority">
-            <MultiSelect id="titles" options={ref.job_titles || []} value={s1.target_job_titles} onChange={(v) => updateS1("target_job_titles", v)} placeholder="Seniority levels…" />
+          <Field label="Target Job Titles / Seniority · paste one per line">
+            <textarea
+              data-testid="input-job-titles"
+              className="evcl-input"
+              rows={4}
+              value={(s1.target_job_titles || []).join("\n")}
+              onChange={(e) => {
+                const list = e.target.value
+                  .split(/\r?\n/)
+                  .map((l) => l.trim())
+                  .filter(Boolean);
+                updateS1("target_job_titles", list);
+              }}
+              placeholder={"Paste one title per line — e.g.\nCTO\nVP Engineering\nHead of Product"}
+            />
+            <div className="font-mono-tight text-xs text-[#666] mt-1">
+              {(s1.target_job_titles || []).length} title(s) captured
+            </div>
           </Field>
 
           <Field label="Exclusions (Company / Industry / Functions / Titles)" span={3}>
@@ -288,18 +328,14 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
 
           <div className="md:col-span-3"><hr className="border-[#DCDCCF]" /></div>
 
-          <Field label="Type of Campaign">
-            <select
-              data-testid="input-campaign-type"
-              className="evcl-input"
-              value={s1.campaign_type_config.type || ""}
-              onChange={(e) => updateCampType("type", e.target.value)}
-            >
-              <option value="">— Select —</option>
-              {(ref.campaign_types || []).map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+          <Field label="Type of Campaign · multi-select">
+            <MultiSelect
+              id="campaign-types"
+              options={ref.campaign_types || []}
+              value={s1.campaign_type_config.types || []}
+              onChange={(v) => updateCampType("types", v)}
+              placeholder="Select one or more campaign types…"
+            />
           </Field>
           <Field label="Number of CQ">
             <input
@@ -373,11 +409,11 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
             />
           </Field>
           <div className="self-end">
-            <div className="font-label mb-2">Lead Counts derive from</div>
-            <div className="font-mono-tight text-sm bg-[#F0F0EE] px-3 py-2 border-l-2 border-[#0A0A0A]">
-              {s3.data_source
-                ? `${s3.data_source} × Data Counts × conversion %`
-                : "Pick a source to auto-compute Lead Counts"}
+            <div className="font-label mb-2">Active Lead Types</div>
+            <div data-testid="active-lead-types" className="font-mono-tight text-sm bg-[#F0F0EE] px-3 py-2 border-l-2 border-[#0A0A0A]">
+              {targetedSet.size === 0
+                ? "Select Campaign Type(s) in Section 1"
+                : Array.from(targetedSet).join(" · ")}
             </div>
           </div>
         </div>
@@ -387,9 +423,8 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
               <tr>
                 <th>Lead Type</th>
                 <th className="num">Conv. %</th>
-                <th className="num">CPC</th>
+                <th className="num">CPL</th>
                 <th className="num">Lead Counts · auto</th>
-                <th className="num">CPL ($) · auto</th>
                 <th className="num">Total Cost · auto</th>
               </tr>
             </thead>
@@ -398,21 +433,28 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
                 const pct = (ref.conversion_rates && s3.data_source)
                   ? (ref.conversion_rates[s3.data_source] || {})[r.lead_type] ?? 0
                   : 0;
+                const active = targetedSet.has(r.lead_type);
                 return (
-                  <tr key={r.lead_type} data-testid={`lead-row-${r.lead_type}`}>
-                    <td className="font-mono-tight uppercase">{r.lead_type}</td>
+                  <tr
+                    key={r.lead_type}
+                    data-testid={`lead-row-${r.lead_type}`}
+                    className={active ? "" : "opacity-40"}
+                  >
+                    <td className="font-mono-tight uppercase">
+                      {r.lead_type}
+                      {active && <span className="chip ml-2" style={{padding:"0 6px",fontSize:"0.6rem"}}>ACTIVE</span>}
+                    </td>
                     <td className="num text-[#666]">{pct ? `${pct}%` : "—"}</td>
                     <td className="num">
                       <input
                         type="number" min="0" step="0.01"
-                        data-testid={`input-cpc-${r.lead_type}`}
+                        data-testid={`input-cpl-${r.lead_type}`}
                         className="evcl-input text-right"
-                        value={r.cpc}
-                        onChange={(e) => updateRow(idx, "cpc", e.target.value)}
+                        value={r.cpl}
+                        onChange={(e) => updateRow(idx, "cpl", e.target.value)}
                       />
                     </td>
                     <td className="num" data-testid={`cell-leadcount-${r.lead_type}`}>{fmtNum(r.lead_counts)}</td>
-                    <td className="num" data-testid={`cell-cpl-${r.lead_type}`}>{fmtCurrency(r.cpl)}</td>
                     <td className="num" data-testid={`cell-total-${r.lead_type}`}>{fmtCurrency(r.total_cost)}</td>
                   </tr>
                 );
@@ -422,14 +464,17 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
                 <td></td>
                 <td></td>
                 <td className="num" data-testid="grand-total-leads">{fmtNum(s3.grand_total_leads)}</td>
-                <td className="num" data-testid="blended-cpl">{fmtCurrency(s3.blended_cpl)} <span className="text-[#666] font-label ml-1">blended</span></td>
                 <td className="num" data-testid="grand-total-cost">{fmtCurrency(s3.grand_total_cost)}</td>
+              </tr>
+              <tr>
+                <td colSpan={4} className="font-label text-right pr-3">Blended CPL</td>
+                <td className="num" data-testid="blended-cpl">{fmtCurrency(s3.blended_cpl)}</td>
               </tr>
             </tbody>
           </table>
         </div>
         <div className="font-mono-tight text-xs text-[#666] mt-3">
-          Lead Counts = Data Counts × source conversion %. CPL = CPC × lead-type complexity multiplier. Total = CPL × Lead Counts.
+          Only rows matching the Campaign Types selected in Section 1 are calculated. Lead Counts = Data Counts × source conversion %. Total Cost = CPL × Lead Counts.
         </div>
       </Section>
 

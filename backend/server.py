@@ -98,6 +98,53 @@ CONVERSION_RATES: Dict[str, Dict[str, float]] = {
 # LinkedIn defaults to the same rates as VibeProspect until provided otherwise.
 CONVERSION_RATES["LinkedIn"] = dict(CONVERSION_RATES["VibeProspect"])
 
+
+def campaign_to_lead_types(cfg) -> List[str]:
+    """Map Section 1 Campaign Types (multi-select) + qualifier counts → concrete
+    Section 3 lead-type row(s) that should be populated. Unselected rows stay 0.
+    """
+    if cfg is None:
+        return []
+    types = list(getattr(cfg, "types", None) or [])
+    n_cq = int(getattr(cfg, "num_cq", 0) or 0)
+    n_qq = int(getattr(cfg, "num_qq", 0) or 0)
+    result: List[str] = []
+    for t in types:
+        t = (t or "").strip()
+        if t == "MQL with CQ":
+            if 1 <= n_cq <= 3:
+                result.append(f"MQL+{n_cq}CQ")
+            else:
+                result.extend(["MQL+1CQ", "MQL+2CQ", "MQL+3CQ"])
+        elif t == "MQL with QQ":
+            if 1 <= n_qq <= 3:
+                result.append(f"MQL+{n_qq}QQ")
+            else:
+                result.extend(["MQL+1QQ", "MQL+2QQ", "MQL+3QQ"])
+        elif t == "Single touch":
+            result.append("MQL SINGLE TOUCH")
+        elif t == "Double touch":
+            result.append("MQL DOUBLE TOUCH")
+        elif t == "Multi touch":
+            result.append("MQL MULTI-TOUCH")
+        elif t == "HQL":
+            result.append("HQL")
+        elif t == "BANT":
+            result.append("BANT")
+        elif t == "Appointment-setup":
+            result.append("AG")
+        elif t == "MQL":
+            result.append("MQL SINGLE TOUCH")
+        # "Social Media Spend" and unknown → no lead-type mapping
+    # dedupe preserving order
+    seen = set()
+    out = []
+    for x in result:
+        if x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
+
 # ----------------------- Models ----------------------- #
 
 
@@ -107,7 +154,7 @@ class CampaignRunDate(BaseModel):
 
 
 class CampaignTypeConfig(BaseModel):
-    type: Optional[str] = None  # e.g. MQL, HQL, BANT, Single touch...
+    types: List[str] = Field(default_factory=list)  # multi-select
     num_qq: Optional[int] = 0
     num_cq: Optional[int] = 0
     num_touches: Optional[int] = 0
@@ -139,9 +186,8 @@ class Section2Universe(BaseModel):
 
 class LeadRow(BaseModel):
     lead_type: str
-    cpc: float = 0  # numerical value (not currency)
-    lead_counts: float = 0  # auto-computed from data_source + data_counts
-    cpl: float = 0  # auto: cpc * multiplier
+    cpl: float = 0  # user-entered cost per lead (numerical)
+    lead_counts: float = 0  # auto-computed from data_source + data_counts + campaign type
     total_cost: float = 0  # auto: cpl * lead_counts
 
 
@@ -211,33 +257,38 @@ def compute_data_universe(section1: Section1Discovery) -> float:
     return float(round(universe))
 
 
-def compute_section3(section3: Section3Computation) -> Section3Computation:
-    """Auto-fill lead counts (from data source × data counts) + CPL + totals per row."""
+def compute_section3(
+    section3: Section3Computation, section1: Optional[Section1Discovery] = None
+) -> Section3Computation:
+    """Auto-fill lead counts (from data source × data counts × conversion %) and totals
+    ONLY for the lead-type rows that match the Campaign Types selected in Section 1.
+    CPL is user-entered (numerical); Total = CPL × Lead Counts.
+    """
     source = section3.data_source if section3.data_source in CONVERSION_RATES else None
     data_counts = float(section3.data_counts or 0)
     rate_map = CONVERSION_RATES.get(source, {}) if source else {}
+
+    targeted = set(
+        campaign_to_lead_types(section1.campaign_type_config) if section1 else []
+    )
 
     total_leads = 0.0
     total_cost = 0.0
     new_rows: List[LeadRow] = []
     for r in section3.rows:
-        mult = LEAD_MULTIPLIERS.get(r.lead_type, 1.0)
-        cpc = float(r.cpc or 0)
-        # Lead Counts = Data Counts × conversion-rate(source, lead_type) / 100.
-        # If source not selected OR data_counts <= 0 → lead_counts = 0 (spec).
-        if source and data_counts > 0:
+        cpl = float(r.cpl or 0)
+        # Lead Counts computed only for targeted lead types AND when source+counts are set.
+        if r.lead_type in targeted and source and data_counts > 0:
             pct = float(rate_map.get(r.lead_type, 0))
             lc = round(data_counts * pct / 100.0, 0)
         else:
             lc = 0.0
-        cpl = round(cpc * mult, 2)
         tcost = round(cpl * lc, 2)
         new_rows.append(
             LeadRow(
                 lead_type=r.lead_type,
-                cpc=cpc,
-                lead_counts=lc,
                 cpl=cpl,
+                lead_counts=lc,
                 total_cost=tcost,
             )
         )
@@ -274,7 +325,7 @@ def rfp_to_doc(rfp: RFP) -> dict:
 
 def apply_compute(rfp_in: RFPBase) -> RFPBase:
     rfp_in.section2.data_universe = compute_data_universe(rfp_in.section1)
-    rfp_in.section3 = compute_section3(rfp_in.section3)
+    rfp_in.section3 = compute_section3(rfp_in.section3, rfp_in.section1)
     return rfp_in
 
 
@@ -470,7 +521,7 @@ def _flat_row(d: dict) -> dict:
         "contacts_per_company": s1.get("contacts_per_company", 1),
         "exclusions": s1.get("exclusions", ""),
         "suppression_file": s1.get("suppression_file", ""),
-        "campaign_type": ctc.get("type", ""),
+        "campaign_type": ", ".join(ctc.get("types") or []),
         "num_qq": ctc.get("num_qq", 0),
         "num_cq": ctc.get("num_cq", 0),
         "num_touches": ctc.get("num_touches", 0),
@@ -531,7 +582,7 @@ async def export_xlsx():
     ws2 = wb.create_sheet("Leads Detail")
     lead_headers = [
         "rfp_id", "client_id", "campaign_name",
-        "lead_type", "cpc", "lead_counts", "cpl", "total_cost",
+        "lead_type", "cpl", "lead_counts", "total_cost",
     ]
     ws2.append(lead_headers)
     for col_idx in range(1, len(lead_headers) + 1):
@@ -546,9 +597,8 @@ async def export_xlsx():
                 (d.get("section1") or {}).get("client_id", ""),
                 (d.get("section1") or {}).get("campaign_name", ""),
                 lr.get("lead_type"),
-                lr.get("cpc"),
-                lr.get("lead_counts"),
                 lr.get("cpl"),
+                lr.get("lead_counts"),
                 lr.get("total_cost"),
             ])
 

@@ -35,14 +35,14 @@ export const emptyRFP = () => ({
     contacts_per_company: 1,
     exclusions: "",
     suppression_file: "",
-    campaign_type_config: { type: "MQL", num_qq: 0, num_cq: 0, num_touches: 0 },
+    campaign_type_config: { types: [], num_qq: 0, num_cq: 0, num_touches: 0 },
   },
   section2: { data_universe: 0 },
   section3: {
     data_source: "",
     data_counts: 0,
     rows: LEAD_TYPES.map((lt) => ({
-      lead_type: lt, cpc: 0, lead_counts: 0, cpl: 0, total_cost: 0,
+      lead_type: lt, cpl: 0, lead_counts: 0, total_cost: 0,
     })),
     grand_total_leads: 0,
     grand_total_cost: 0,

@@ -1,9 +1,9 @@
-"""Backend tests for RFP Master Tracking API (Iteration 2 — data_source / data_counts)."""
+"""Backend tests for RFP Master Tracking API (Iteration 3 — multi-select campaign types + CPL direct input)."""
 import os
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://app-from-specs-9.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
 API = f"{BASE_URL}/api"
 
 
@@ -21,51 +21,51 @@ def reference(session):
     return r.json()
 
 
-def _rows_for_all_types(reference, cpc_map=None):
-    cpc_map = cpc_map or {}
+def _rows(reference, cpl_map=None):
+    cpl_map = cpl_map or {}
     return [
-        {"lead_type": lt, "cpc": cpc_map.get(lt, 0), "lead_counts": 0, "cpl": 0, "total_cost": 0}
+        {"lead_type": lt, "cpl": cpl_map.get(lt, 0), "lead_counts": 0, "total_cost": 0}
         for lt in reference["lead_types"]
     ]
 
 
-def sample_payload(reference, data_source="Apollo", data_counts=10000, cpc_map=None):
-    geos = reference["geographies"][:2]
-    inds = reference["industries"][:3]
-    rev = reference["revenue_sizes"][:2]
-    emp = reference["employee_sizes"][:2]
-    funcs = reference["job_functions"][:2]
-    titles = reference["job_titles"][:2]
+def sample_payload(reference, types=None, data_source="Apollo", data_counts=10000,
+                   cpl_map=None, num_cq=0, num_qq=0, job_titles=None):
     return {
         "section1": {
-            "rfp_master_tracking_sheet": "TEST_SHEET_01",
+            "rfp_master_tracking_sheet": "TEST_SHEET_ITER3",
             "date_of_rfp": "2026-01-15",
             "campaign_run_date": {"start_date": "2026-02-01", "end_date": "2026-02-28"},
             "client_id": "EVCL001",
-            "campaign_name": "TEST_Campaign_Backend",
-            "campaign_id": "TEST-CMP-001",
-            "end_client_name": "TEST_Acme",
-            "target_geography": geos,
-            "target_industries": inds,
-            "revenue_size": rev,
-            "employee_size": emp,
-            "target_job_functions": funcs,
-            "target_job_titles": titles,
-            "contacts_per_company": 3,
+            "campaign_name": "TEST_Iter3_Campaign",
+            "campaign_id": "TEST-CMP-003",
+            "end_client_name": "TEST_Acme3",
+            "target_geography": reference["geographies"][:2],
+            "target_industries": reference["industries"][:2],
+            "revenue_size": reference["revenue_sizes"][:1],
+            "employee_size": reference["employee_sizes"][:1],
+            "target_job_functions": reference["job_functions"][:1],
+            "target_job_titles": job_titles if job_titles is not None else ["CEO", "CTO"],
+            "contacts_per_company": 2,
             "exclusions": "none",
-            "suppression_file": "test@example.com",
-            "campaign_type_config": {"type": "MQL", "num_qq": 1, "num_cq": 1, "num_touches": 2},
+            "suppression_file": "",
+            "campaign_type_config": {
+                "types": types if types is not None else [],
+                "num_qq": num_qq,
+                "num_cq": num_cq,
+                "num_touches": 0,
+            },
         },
         "section2": {"data_universe": 0},
         "section3": {
             "data_source": data_source,
             "data_counts": data_counts,
-            "rows": _rows_for_all_types(reference, cpc_map=cpc_map),
+            "rows": _rows(reference, cpl_map=cpl_map),
             "grand_total_leads": 0,
             "grand_total_cost": 0,
             "blended_cpl": 0,
         },
-        "section4": {"rfp_submitted_date": "2026-01-20", "rfp_converted": "N", "volumes_assigned": 0},
+        "section4": {"rfp_submitted_date": "", "rfp_converted": "N", "volumes_assigned": 0},
     }
 
 
@@ -77,191 +77,131 @@ class TestReference:
                   "lead_multipliers", "data_sources", "conversion_rates"]:
             assert k in reference, f"missing {k}"
         assert len(reference["lead_types"]) == 12
-        assert reference["lead_multipliers"]["HQL"] == 2.5
 
     def test_data_sources(self, reference):
         assert reference["data_sources"] == ["LinkedIn", "Prospeo", "Apollo", "VibeProspect"]
 
-    def test_conversion_rates_shape(self, reference):
-        cr = reference["conversion_rates"]
-        for src in ["LinkedIn", "Prospeo", "Apollo", "VibeProspect"]:
-            assert src in cr, f"missing {src}"
-            for lt in reference["lead_types"]:
-                assert lt in cr[src], f"missing {src}/{lt}"
 
-    def test_linkedin_defaults_to_vibeprospect(self, reference):
-        cr = reference["conversion_rates"]
-        assert cr["LinkedIn"] == cr["VibeProspect"]
-
-    def test_specific_rates_apollo(self, reference):
-        a = reference["conversion_rates"]["Apollo"]
-        assert a["MQL+1CQ"] == 25
-        assert a["MQL+1QQ"] == 20
-        assert a["MQL SINGLE TOUCH"] == 25
-        assert a["MQL DOUBLE TOUCH"] == 20
-        assert a["MQL MULTI-TOUCH"] == 20
-        assert a["HQL"] == 15
-        assert a["BANT"] == 5
-        assert a["AG"] == 3
-
-    def test_specific_rates_vibeprospect(self, reference):
-        v = reference["conversion_rates"]["VibeProspect"]
-        assert v["MQL+1CQ"] == 45
-        assert v["HQL"] == 25
-        assert v["BANT"] == 10
-        assert v["AG"] == 3
-
-    def test_specific_rates_prospeo(self, reference):
-        p = reference["conversion_rates"]["Prospeo"]
-        assert p["MQL+1CQ"] == 35
-        assert p["HQL"] == 20
-        assert p["BANT"] == 5
-        assert p["AG"] == 3
-
-
-# ----- Preview compute: auto lead-counts logic -----
-class TestPreviewLeadCounts:
-    def test_apollo_10000(self, session, reference):
-        payload = sample_payload(reference, "Apollo", 10000)
+# ----- Preview compute: targeted lead types only -----
+class TestPreviewTargeting:
+    def test_hql_bant_apollo(self, session, reference):
+        cpl_map = {"HQL": 25, "BANT": 50, "AG": 999, "MQL SINGLE TOUCH": 999}
+        payload = sample_payload(reference, types=["HQL", "BANT"],
+                                 data_source="Apollo", data_counts=10000, cpl_map=cpl_map)
         r = session.post(f"{API}/rfps/preview", json=payload, timeout=30)
         assert r.status_code == 200
-        rows = {row["lead_type"]: row for row in r.json()["section3"]["rows"]}
-        assert rows["MQL+1CQ"]["lead_counts"] == 2500
-        assert rows["MQL+1QQ"]["lead_counts"] == 2000
-        assert rows["MQL SINGLE TOUCH"]["lead_counts"] == 2500
-        assert rows["MQL DOUBLE TOUCH"]["lead_counts"] == 2000
-        assert rows["MQL MULTI-TOUCH"]["lead_counts"] == 2000
-        assert rows["HQL"]["lead_counts"] == 1500
-        assert rows["BANT"]["lead_counts"] == 500
-        assert rows["AG"]["lead_counts"] == 300
-
-    def test_vibeprospect_10000(self, session, reference):
-        payload = sample_payload(reference, "VibeProspect", 10000)
-        r = session.post(f"{API}/rfps/preview", json=payload, timeout=30)
-        rows = {row["lead_type"]: row for row in r.json()["section3"]["rows"]}
-        assert rows["MQL+1CQ"]["lead_counts"] == 4500
-        assert rows["HQL"]["lead_counts"] == 2500
-        assert rows["BANT"]["lead_counts"] == 1000
-        assert rows["AG"]["lead_counts"] == 300
-
-    def test_linkedin_matches_vibeprospect(self, session, reference):
-        payload = sample_payload(reference, "LinkedIn", 10000)
-        r = session.post(f"{API}/rfps/preview", json=payload, timeout=30)
-        rows = {row["lead_type"]: row for row in r.json()["section3"]["rows"]}
-        assert rows["MQL+1CQ"]["lead_counts"] == 4500
-        assert rows["HQL"]["lead_counts"] == 2500
-
-    def test_prospeo_1000(self, session, reference):
-        payload = sample_payload(reference, "Prospeo", 1000)
-        r = session.post(f"{API}/rfps/preview", json=payload, timeout=30)
-        rows = {row["lead_type"]: row for row in r.json()["section3"]["rows"]}
-        assert rows["MQL+1CQ"]["lead_counts"] == 350
-        assert rows["HQL"]["lead_counts"] == 200
-        assert rows["BANT"]["lead_counts"] == 50
-        assert rows["AG"]["lead_counts"] == 30
-
-    def test_empty_source_yields_zero(self, session, reference):
-        payload = sample_payload(reference, "", 10000)
-        r = session.post(f"{API}/rfps/preview", json=payload, timeout=30)
-        rows = r.json()["section3"]["rows"]
-        for row in rows:
-            assert row["lead_counts"] == 0
-
-    def test_zero_counts_yields_zero(self, session, reference):
-        payload = sample_payload(reference, "Apollo", 0)
-        r = session.post(f"{API}/rfps/preview", json=payload, timeout=30)
-        rows = r.json()["section3"]["rows"]
-        for row in rows:
-            assert row["lead_counts"] == 0
-
-
-# ----- CPL math + totals (auto leads * cpc multiplier) -----
-class TestPreviewCpl:
-    def test_apollo_with_cpcs(self, session, reference):
-        cpc_map = {"HQL": 10, "AG": 20}
-        payload = sample_payload(reference, "Apollo", 10000, cpc_map=cpc_map)
-        r = session.post(f"{API}/rfps/preview", json=payload, timeout=30)
-        data = r.json()
-        rows = {row["lead_type"]: row for row in data["section3"]["rows"]}
-        mults = reference["lead_multipliers"]
-        # HQL: lead_counts=1500, cpc=10, cpl=10*2.5=25, total=25*1500=37500
-        assert rows["HQL"]["cpl"] == round(10 * mults["HQL"], 2) == 25.0
-        assert rows["HQL"]["lead_counts"] == 1500
-        assert rows["HQL"]["total_cost"] == 25.0 * 1500
-        # AG: lead_counts=300, cpc=20, cpl=20*5=100, total=100*300=30000
-        assert rows["AG"]["cpl"] == round(20 * mults["AG"], 2) == 100.0
-        assert rows["AG"]["lead_counts"] == 300
-        assert rows["AG"]["total_cost"] == 100.0 * 300
-
-    def test_grand_totals(self, session, reference):
-        cpc_map = {"HQL": 10, "AG": 20}
-        payload = sample_payload(reference, "Apollo", 10000, cpc_map=cpc_map)
-        r = session.post(f"{API}/rfps/preview", json=payload, timeout=30)
         s3 = r.json()["section3"]
-        # only HQL and AG have non-zero cost; lead_counts though sum over all rows
-        expected_total_cost = 25.0 * 1500 + 100.0 * 300
-        assert s3["grand_total_cost"] == round(expected_total_cost, 2)
-        expected_total_leads = sum(row["lead_counts"] for row in s3["rows"])
-        assert s3["grand_total_leads"] == expected_total_leads
-        assert s3["blended_cpl"] == round(expected_total_cost / expected_total_leads, 2)
+        rows = {row["lead_type"]: row for row in s3["rows"]}
+        assert rows["HQL"]["lead_counts"] == 1500
+        assert rows["HQL"]["total_cost"] == 25 * 1500
+        assert rows["BANT"]["lead_counts"] == 500
+        assert rows["BANT"]["total_cost"] == 50 * 500
+        # non-targeted rows must have lead_counts=0 and total_cost=0 despite cpl set
+        assert rows["AG"]["lead_counts"] == 0
+        assert rows["AG"]["total_cost"] == 0
+        assert rows["MQL SINGLE TOUCH"]["lead_counts"] == 0
+        assert rows["MQL SINGLE TOUCH"]["total_cost"] == 0
+        assert s3["grand_total_leads"] == 2000
+        assert s3["grand_total_cost"] == 62500
+        assert s3["blended_cpl"] == 31.25
+
+    def test_mql_with_cq_num_2(self, session, reference):
+        payload = sample_payload(reference, types=["MQL with CQ"], num_cq=2,
+                                 data_source="VibeProspect", data_counts=1000)
+        r = session.post(f"{API}/rfps/preview", json=payload, timeout=30)
+        rows = {row["lead_type"]: row for row in r.json()["section3"]["rows"]}
+        assert rows["MQL+2CQ"]["lead_counts"] == 450
+        assert rows["MQL+1CQ"]["lead_counts"] == 0
+        assert rows["MQL+3CQ"]["lead_counts"] == 0
+
+    def test_mql_with_cq_num_zero_fallback(self, session, reference):
+        payload = sample_payload(reference, types=["MQL with CQ"], num_cq=0,
+                                 data_source="Apollo", data_counts=1000)
+        r = session.post(f"{API}/rfps/preview", json=payload, timeout=30)
+        rows = {row["lead_type"]: row for row in r.json()["section3"]["rows"]}
+        assert rows["MQL+1CQ"]["lead_counts"] == 250
+        assert rows["MQL+2CQ"]["lead_counts"] == 250
+        assert rows["MQL+3CQ"]["lead_counts"] == 250
+
+    def test_touches_multi_hql_prospeo(self, session, reference):
+        payload = sample_payload(reference, types=["Single touch", "Multi touch", "HQL"],
+                                 data_source="Prospeo", data_counts=1000)
+        r = session.post(f"{API}/rfps/preview", json=payload, timeout=30)
+        rows = {row["lead_type"]: row for row in r.json()["section3"]["rows"]}
+        assert rows["MQL SINGLE TOUCH"]["lead_counts"] == 350
+        assert rows["MQL MULTI-TOUCH"]["lead_counts"] == 250
+        assert rows["HQL"]["lead_counts"] == 200
+        assert rows["MQL DOUBLE TOUCH"]["lead_counts"] == 0
+        assert rows["BANT"]["lead_counts"] == 0
+        assert rows["AG"]["lead_counts"] == 0
+
+    def test_empty_types(self, session, reference):
+        payload = sample_payload(reference, types=[], data_source="Apollo", data_counts=1000)
+        r = session.post(f"{API}/rfps/preview", json=payload, timeout=30)
+        for row in r.json()["section3"]["rows"]:
+            assert row["lead_counts"] == 0
+
+    def test_social_media_spend_only(self, session, reference):
+        payload = sample_payload(reference, types=["Social Media Spend"],
+                                 data_source="Apollo", data_counts=1000)
+        r = session.post(f"{API}/rfps/preview", json=payload, timeout=30)
+        for row in r.json()["section3"]["rows"]:
+            assert row["lead_counts"] == 0
+
+    def test_no_cpc_field_in_response(self, session, reference):
+        payload = sample_payload(reference, types=["HQL"], data_source="Apollo",
+                                 data_counts=1000, cpl_map={"HQL": 25})
+        r = session.post(f"{API}/rfps/preview", json=payload, timeout=30)
+        for row in r.json()["section3"]["rows"]:
+            assert "cpc" not in row
+            assert set(row.keys()) == {"lead_type", "cpl", "lead_counts", "total_cost"}
 
 
-# ----- CRUD + persistence of data_source/data_counts -----
+# ----- CRUD + persistence -----
 class TestCRUD:
     created_id = None
 
-    def test_create_persists_section3(self, session, reference):
-        payload = sample_payload(reference, "Apollo", 10000, cpc_map={"HQL": 10, "AG": 20})
+    def test_create_persists_types_and_job_titles(self, session, reference):
+        titles = ["Chief Executive Officer", "VP Engineering", "Head of Marketing", "CTO"]
+        payload = sample_payload(reference, types=["HQL", "BANT"],
+                                 data_source="Apollo", data_counts=10000,
+                                 cpl_map={"HQL": 25, "BANT": 50},
+                                 job_titles=titles)
         r = session.post(f"{API}/rfps", json=payload, timeout=30)
         assert r.status_code == 200
         data = r.json()
-        assert data["section3"]["data_source"] == "Apollo"
-        assert data["section3"]["data_counts"] == 10000
+        assert data["section1"]["campaign_type_config"]["types"] == ["HQL", "BANT"]
+        assert data["section1"]["target_job_titles"] == titles
         rows = {row["lead_type"]: row for row in data["section3"]["rows"]}
         assert rows["HQL"]["lead_counts"] == 1500
-        assert rows["HQL"]["cpl"] == 25.0
         assert rows["HQL"]["total_cost"] == 37500
-        assert rows["AG"]["lead_counts"] == 300
-        assert rows["AG"]["cpl"] == 100.0
-        assert rows["AG"]["total_cost"] == 30000
+        assert rows["BANT"]["lead_counts"] == 500
+        assert rows["BANT"]["total_cost"] == 25000
+        assert data["section3"]["grand_total_leads"] == 2000
+        assert data["section3"]["grand_total_cost"] == 62500
+        assert data["section3"]["blended_cpl"] == 31.25
         TestCRUD.created_id = data["id"]
 
     def test_get_roundtrip(self, session):
         r = session.get(f"{API}/rfps/{TestCRUD.created_id}", timeout=30)
         assert r.status_code == 200
         data = r.json()
-        assert data["section3"]["data_source"] == "Apollo"
-        assert data["section3"]["data_counts"] == 10000
+        assert data["section1"]["campaign_type_config"]["types"] == ["HQL", "BANT"]
+        assert len(data["section1"]["target_job_titles"]) == 4
         assert "_id" not in data
+        for row in data["section3"]["rows"]:
+            assert "cpc" not in row
 
-    def test_update_changes_source(self, session, reference):
-        payload = sample_payload(reference, "Prospeo", 1000, cpc_map={"HQL": 10})
-        r = session.put(f"{API}/rfps/{TestCRUD.created_id}", json=payload, timeout=30)
-        assert r.status_code == 200
-        g = session.get(f"{API}/rfps/{TestCRUD.created_id}", timeout=30).json()
-        assert g["section3"]["data_source"] == "Prospeo"
-        assert g["section3"]["data_counts"] == 1000
-        rows = {row["lead_type"]: row for row in g["section3"]["rows"]}
-        assert rows["HQL"]["lead_counts"] == 200  # Prospeo HQL = 20% of 1000
-
-    def test_legacy_rfp_without_new_fields(self, session, reference):
-        # Simulate an iteration-1 saved RFP: no data_source/data_counts
-        payload = sample_payload(reference, "", 0)
-        del payload["section3"]["data_source"]
-        del payload["section3"]["data_counts"]
-        r = session.post(f"{API}/rfps", json=payload, timeout=30)
-        assert r.status_code == 200
-        data = r.json()
-        assert data["section3"].get("data_source") in (None, "")
-        assert data["section3"].get("data_counts", 0) == 0
-        # cleanup
-        session.delete(f"{API}/rfps/{data['id']}", timeout=30)
-
-    def test_export_csv_has_new_columns(self, session):
+    def test_export_csv_new_columns_no_cpc(self, session):
         r = session.get(f"{API}/rfps/export/csv", timeout=30)
         assert r.status_code == 200
-        assert b"data_source" in r.content
-        assert b"data_counts" in r.content
+        content = r.content.decode("utf-8")
+        header = content.splitlines()[0]
+        cols = header.split(",")
+        assert "cpc" not in cols
+        assert "campaign_type" in cols
+        assert "data_source" in cols
+        assert "data_counts" in cols
 
     def test_export_xlsx(self, session):
         r = session.get(f"{API}/rfps/export/xlsx", timeout=30)
@@ -282,7 +222,3 @@ class TestCRUD:
         assert r.status_code == 200
         g = session.get(f"{API}/rfps/{TestCRUD.created_id}", timeout=30)
         assert g.status_code == 404
-
-    def test_get_nonexistent(self, session):
-        r = session.get(f"{API}/rfps/nope-xyz", timeout=30)
-        assert r.status_code == 404

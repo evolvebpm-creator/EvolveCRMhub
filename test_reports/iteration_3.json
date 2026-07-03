@@ -1,0 +1,20 @@
+{
+  "summary": "Iteration 3 (multi-select campaign types + CPL direct input + targeted lead-counts) verified end-to-end. Backend 15/15 pytest passed. Frontend Playwright E2E confirmed textarea job titles, multi-select chips, CPL-only inputs, targeted-only lead computation, and full save→reload roundtrip.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "test_report_links": ["/app/backend/tests/test_rfp.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "CampaignTypeConfig still keeps legacy num_qq/num_cq/num_touches even though 'MQL with QQ'/'MQL with CQ' campaign type items already imply them; consider a single source of truth to avoid inconsistency.",
+    "LEAD_MULTIPLIERS and lead_multipliers key are still exposed in /api/reference but no longer used anywhere (CPL is now direct user input). Consider removing to reduce API surface confusion.",
+    "compute_section3 sets lead_counts=0 for non-targeted rows but still preserves the user-entered cpl on the row - fine UX, but confirm CSV/XLSX consumers understand that non-zero CPL with zero leads is intentional."
+  ],
+  "updated_files": ["/app/backend/tests/test_rfp.py"],
+  "success_rate": { "backend": "100% (15/15)", "frontend": "100%" },
+  "test_credentials": "N/A (no auth)",
+  "seed_data_creation": "TEST_UI_ITER3 RFP created and deleted during Playwright test; no residual data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend uses env var REACT_APP_BACKEND_URL; must be exported in shell when running pytest directly. Iter3 breaking changes verified: campaign_type_config.types (List[str]) replaces .type (str), LeadRow schema is {lead_type, cpl, lead_counts, total_cost} — no cpc. Only lead-types in campaign_to_lead_types(section1.campaign_type_config) receive non-zero lead_counts. MultiSelect stays open between clicks (does not auto-close); click outside to close. Edit is triggered via first button icon in All RFPs row (not by clicking text).",
+  "rca of the issue": "N/A - no issues found."
+}
