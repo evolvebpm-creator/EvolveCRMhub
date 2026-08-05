@@ -1,0 +1,27 @@
+{
+  "summary": "Iteration 5 (BREAKING) fully verified. Backend: 22/22 pytest cases pass covering new LEAD_TYPES (6 rows), DATA_SOURCES [VibeProspect, Prospeo, Apollo, Others], per-source conversion rates, stacked modifier math (CPC ÷5/3/2/1.5/1.25; CQ 15-50%; QQ 25-60%; TV 10%), Data Universe auto-suggest vs user-override, non-targeted-row zeroing, Others source multi-row baseline, CSV export with 'with_tv' + no 'data_counts', XLSX, stats, CRUD roundtrip. Frontend E2E: Section-3 shows 6-row table, TV toggle On/Off, editable input-data-universe with [ Auto ] reset, no input-data-counts, opacity-40 on non-active rows, full-stack live compute (MQL=835, HQL=464, BANT-DIGITAL=278, grand=1,577, cost=$33,850.00, blended=$21.46). Save + edit-reload preserves every field (types, contacts=3, num_cq=2, num_qq=3, with_tv=on, universe=10000, source=VibeProspect, CPLs).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_rfp_iter5.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py compute_section3 uses Python 3 banker's rounding (round(1687.5,0)=1688) - documented expected behaviour; consider adding an inline comment so future maintainers don't mistake it for a bug.",
+    "campaign_to_lead_types keeps legacy aliases (BANT, BANT+, BANT Plus, Appointment-setup) which is good for forward compat but not exercised by UI; retained for API-direct callers.",
+    "apply_compute only auto-suggests Data Universe when value <=0 - matches spec; UI mirror logic in RFPForm.jsx effect uses same threshold so behavior is consistent."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_rfp_iter5.py (new)",
+    "/app/backend/tests/test_rfp.py (deleted - obsolete iter3 schema)",
+    "/app/backend/tests/test_rfp_iter4.py (deleted - obsolete iter4 schema)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "N/A (no auth)",
+  "seed_data_creation": "Frontend E2E created one RFP (TEST_Iter5_E2E, EVCL001) then deleted it in the same run. Backend test class creates & deletes its own RFP. DB left clean.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "test_rfp_iter5.py is the current authoritative pytest suite; older test_rfp.py / test_rfp_iter4.py have been removed as iter5 broke their schema. Run backend tests with `REACT_APP_BACKEND_URL=... pytest backend/tests/`. Banker's rounding: MQL full-stack@VibeProspect+U10000+cpc3+cq2+qq3+tv=835, HQL=464, BANT-DIG=278.",
+  "rca_of_the_issue": "None - no defects found."
+}

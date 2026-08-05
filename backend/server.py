@@ -27,21 +27,21 @@ api_router = APIRouter(prefix="/api")
 
 # ----------------------- Constants & Reference Data ----------------------- #
 
+# New lead-type row list (Section 3 rows).
 LEAD_TYPES = [
-    "MQL+1CQ", "MQL+2CQ", "MQL+3CQ",
-    "MQL+1QQ", "MQL+2QQ", "MQL+3QQ",
-    "MQL SINGLE TOUCH",
-    "MQL DOUBLE TOUCH",
-    "MQL MULTI-TOUCH",
-    "HQL", "BANT", "AG",
+    "MQL",
+    "HQL",
+    "BANT - DIGITAL",
+    "BANT - TELE",
+    "BANT +",
+    "APPOINTMENT SET-UP",
 ]
 
-# Cost multipliers applied to CPC to derive CPL for each lead type.
-# Higher complexity = higher multiplier.
-# Universe estimation reference values (approximate global LinkedIn order-of-magnitude)
-GLOBAL_COMPANY_BASE = 60_000_000  # rough global addressable company universe
-TOTAL_REGIONS = 7  # 7 continents/regions reference
-TOTAL_INDUSTRIES = 25  # rough LinkedIn industry buckets reference
+# Universe estimation reference values (heuristic — used only when auto-suggesting
+# Section 2 Data Universe; user can override the value in the UI).
+GLOBAL_COMPANY_BASE = 60_000_000
+TOTAL_REGIONS = 7
+TOTAL_INDUSTRIES = 25
 
 EMPLOYEE_BAND_WEIGHT = {
     "1-10": 0.30, "11-50": 0.25, "51-200": 0.18, "201-500": 0.10,
@@ -54,76 +54,71 @@ REVENUE_BAND_WEIGHT = {
 }
 
 # Data sources available for Section 3 lead computation.
-DATA_SOURCES = ["LinkedIn", "Prospeo", "Apollo", "VibeProspect"]
+DATA_SOURCES = ["VibeProspect", "Prospeo", "Apollo", "Others"]
 
-# Per-source conversion rates (% of Data Counts → leads of each type).
-# LinkedIn rates default to VibeProspect (rich first-party-ish data) — adjust as needed.
+# Per-source conversion rates (% of Data Universe → leads of each type).
 CONVERSION_RATES: Dict[str, Dict[str, float]] = {
     "VibeProspect": {
-        "MQL+1CQ": 45, "MQL+2CQ": 45, "MQL+3CQ": 45,
-        "MQL+1QQ": 35, "MQL+2QQ": 35, "MQL+3QQ": 35,
-        "MQL SINGLE TOUCH": 55,
-        "MQL DOUBLE TOUCH": 45,
-        "MQL MULTI-TOUCH": 35,
-        "HQL": 25, "BANT": 10, "AG": 3,
+        "MQL": 45, "HQL": 25,
+        "BANT - DIGITAL": 15, "BANT - TELE": 10, "BANT +": 7.5,
+        "APPOINTMENT SET-UP": 5,
     },
     "Prospeo": {
-        "MQL+1CQ": 35, "MQL+2CQ": 35, "MQL+3CQ": 35,
-        "MQL+1QQ": 30, "MQL+2QQ": 30, "MQL+3QQ": 30,
-        "MQL SINGLE TOUCH": 35,
-        "MQL DOUBLE TOUCH": 30,
-        "MQL MULTI-TOUCH": 25,
-        "HQL": 20, "BANT": 5, "AG": 3,
+        "MQL": 35, "HQL": 20,
+        "BANT - DIGITAL": 10, "BANT - TELE": 8, "BANT +": 5,
+        "APPOINTMENT SET-UP": 3,
     },
     "Apollo": {
-        "MQL+1CQ": 25, "MQL+2CQ": 25, "MQL+3CQ": 25,
-        "MQL+1QQ": 20, "MQL+2QQ": 20, "MQL+3QQ": 20,
-        "MQL SINGLE TOUCH": 25,
-        "MQL DOUBLE TOUCH": 20,
-        "MQL MULTI-TOUCH": 20,
-        "HQL": 15, "BANT": 5, "AG": 3,
+        "MQL": 25, "HQL": 15,
+        "BANT - DIGITAL": 10, "BANT - TELE": 5, "BANT +": 3,
+        "APPOINTMENT SET-UP": 2,
+    },
+    "Others": {
+        "MQL": 15, "HQL": 10,
+        "BANT - DIGITAL": 5, "BANT - TELE": 3, "BANT +": 2,
+        "APPOINTMENT SET-UP": 1,
     },
 }
-# LinkedIn defaults to the same rates as VibeProspect until provided otherwise.
-CONVERSION_RATES["LinkedIn"] = dict(CONVERSION_RATES["VibeProspect"])
+
+# CPC (Contacts Per Company) → divide total leads by this factor.
+CPC_DIVISORS: Dict[int, float] = {1: 5.0, 2: 3.0, 3: 2.0, 4: 1.5, 5: 1.25}
+# Custom Questions (num_cq) → reduce lead counts by this fraction (0-1).
+CQ_REDUCTIONS: Dict[int, float] = {1: 0.15, 2: 0.25, 3: 0.35, 4: 0.45, 5: 0.50}
+# Qualifying Questions (num_qq) → reduce lead counts by this fraction.
+QQ_REDUCTIONS: Dict[int, float] = {1: 0.25, 2: 0.35, 3: 0.45, 4: 0.50, 5: 0.60}
+# With TV (Tele Verification) → 10% reduction.
+TV_REDUCTION: float = 0.10
+
+# Per-source conversion rates block is defined above; nothing to add here.
 
 
 def campaign_to_lead_types(cfg) -> List[str]:
-    """Map Section 1 Campaign Types (multi-select) + qualifier counts → concrete
-    Section 3 lead-type row(s) that should be populated. Unselected rows stay 0.
+    """Map Section 1 Campaign Types (multi-select) → Section 3 lead-type row(s)
+    that should be populated. Unselected rows stay 0.
     """
     if cfg is None:
         return []
     types = list(getattr(cfg, "types", None) or [])
-    n_cq = int(getattr(cfg, "num_cq", 0) or 0)
-    n_qq = int(getattr(cfg, "num_qq", 0) or 0)
     result: List[str] = []
     for t in types:
         t = (t or "").strip()
-        if t == "MQL with CQ":
-            if 1 <= n_cq <= 3:
-                result.append(f"MQL+{n_cq}CQ")
-            else:
-                result.extend(["MQL+1CQ", "MQL+2CQ", "MQL+3CQ"])
-        elif t == "MQL with QQ":
-            if 1 <= n_qq <= 3:
-                result.append(f"MQL+{n_qq}QQ")
-            else:
-                result.extend(["MQL+1QQ", "MQL+2QQ", "MQL+3QQ"])
-        elif t == "Single touch":
-            result.append("MQL SINGLE TOUCH")
-        elif t == "Double touch":
-            result.append("MQL DOUBLE TOUCH")
-        elif t == "Multi touch":
-            result.append("MQL MULTI-TOUCH")
+        # All MQL-flavour campaigns collapse to the single MQL row (num_cq / num_qq
+        # are now applied as reductions to the calculated lead volume, not as row keys).
+        if t in ("MQL", "MQL with CQ", "MQL with QQ",
+                 "Single touch", "Double touch", "Multi touch"):
+            result.append("MQL")
         elif t == "HQL":
             result.append("HQL")
-        elif t == "BANT":
-            result.append("BANT")
-        elif t == "Appointment-setup":
-            result.append("AG")
-        elif t == "MQL":
-            result.append("MQL SINGLE TOUCH")
+        elif t in ("BANT - Digital", "BANT - DIGITAL"):
+            result.append("BANT - DIGITAL")
+        elif t in ("BANT - Tele", "BANT - TELE"):
+            result.append("BANT - TELE")
+        elif t in ("BANT +", "BANT+", "BANT Plus"):
+            result.append("BANT +")
+        elif t == "BANT":  # legacy generic → expand to all three BANT variants
+            result.extend(["BANT - DIGITAL", "BANT - TELE", "BANT +"])
+        elif t in ("Appointment Set-up", "Appointment-setup", "APPOINTMENT SET-UP"):
+            result.append("APPOINTMENT SET-UP")
         # "Social Media Spend" and unknown → no lead-type mapping
     # dedupe preserving order
     seen = set()
@@ -147,6 +142,7 @@ class CampaignTypeConfig(BaseModel):
     num_qq: Optional[int] = 0
     num_cq: Optional[int] = 0
     num_touches: Optional[int] = 0
+    with_tv: bool = False  # Tele-Verification toggle (10% reduction)
 
 
 class Section1Discovery(BaseModel):
@@ -182,8 +178,7 @@ class LeadRow(BaseModel):
 
 
 class Section3Computation(BaseModel):
-    data_source: Optional[str] = None  # LinkedIn / Prospeo / Apollo / VibeProspect
-    data_counts: float = 0  # manually entered
+    data_source: Optional[str] = None  # VibeProspect / Prospeo / Apollo / Others
     rows: List[LeadRow] = Field(default_factory=list)
     grand_total_leads: float = 0
     grand_total_cost: float = 0
@@ -248,29 +243,59 @@ def compute_data_universe(section1: Section1Discovery) -> float:
 
 
 def compute_section3(
-    section3: Section3Computation, section1: Optional[Section1Discovery] = None
+    section3: Section3Computation,
+    section1: Optional[Section1Discovery] = None,
+    data_universe: float = 0.0,
 ) -> Section3Computation:
-    """Auto-fill lead counts (from data source × data counts × conversion %) and totals
-    ONLY for the lead-type rows that match the Campaign Types selected in Section 1.
-    CPL is user-entered (numerical); Total = CPL × Lead Counts.
+    """Auto-fill lead counts for the lead-type rows that match the Campaign Types
+    selected in Section 1, using this stacked formula:
+
+        base    = data_universe × conversion_rate[source][lead_type] / 100
+        (÷ CPC) leads = base / cpc_divisor[contacts_per_company]
+        (× CQ)  leads = leads × (1 − cq_reduction[num_cq])
+        (× QQ)  leads = leads × (1 − qq_reduction[num_qq])
+        (× TV)  leads = leads × (1 − 0.10) if with_tv else leads
+        lead_counts = round(leads, 0)
+        total_cost  = round(cpl × lead_counts, 2)
+
+    CPL is user-entered (numeric). Non-targeted rows stay 0 even if a CPL was typed.
     """
     source = section3.data_source if section3.data_source in CONVERSION_RATES else None
-    data_counts = float(section3.data_counts or 0)
+    universe = float(data_universe or 0)
     rate_map = CONVERSION_RATES.get(source, {}) if source else {}
 
-    targeted = set(
-        campaign_to_lead_types(section1.campaign_type_config) if section1 else []
-    )
+    targeted: set = set()
+    cpc_val = 0
+    n_cq = 0
+    n_qq = 0
+    with_tv = False
+    if section1 is not None:
+        targeted = set(campaign_to_lead_types(section1.campaign_type_config))
+        cpc_val = int(section1.contacts_per_company or 0)
+        cfg = section1.campaign_type_config
+        if cfg is not None:
+            n_cq = int(cfg.num_cq or 0)
+            n_qq = int(cfg.num_qq or 0)
+            with_tv = bool(cfg.with_tv)
+
+    cpc_divisor = CPC_DIVISORS.get(cpc_val, 1.0)
+    cq_reduction = CQ_REDUCTIONS.get(n_cq, 0.0)
+    qq_reduction = QQ_REDUCTIONS.get(n_qq, 0.0)
 
     total_leads = 0.0
     total_cost = 0.0
     new_rows: List[LeadRow] = []
     for r in section3.rows:
         cpl = float(r.cpl or 0)
-        # Lead Counts computed only for targeted lead types AND when source+counts are set.
-        if r.lead_type in targeted and source and data_counts > 0:
+        if r.lead_type in targeted and source and universe > 0:
             pct = float(rate_map.get(r.lead_type, 0))
-            lc = round(data_counts * pct / 100.0, 0)
+            base = universe * pct / 100.0
+            leads = base / cpc_divisor
+            leads = leads * (1.0 - cq_reduction)
+            leads = leads * (1.0 - qq_reduction)
+            if with_tv:
+                leads = leads * (1.0 - TV_REDUCTION)
+            lc = round(leads, 0)
         else:
             lc = 0.0
         tcost = round(cpl * lc, 2)
@@ -287,7 +312,6 @@ def compute_section3(
     blended = round(total_cost / total_leads, 2) if total_leads > 0 else 0.0
     return Section3Computation(
         data_source=section3.data_source,
-        data_counts=data_counts,
         rows=new_rows,
         grand_total_leads=round(total_leads, 2),
         grand_total_cost=round(total_cost, 2),
@@ -314,8 +338,14 @@ def rfp_to_doc(rfp: RFP) -> dict:
 
 
 def apply_compute(rfp_in: RFPBase) -> RFPBase:
-    rfp_in.section2.data_universe = compute_data_universe(rfp_in.section1)
-    rfp_in.section3 = compute_section3(rfp_in.section3, rfp_in.section1)
+    # Data Universe is user-editable. Auto-suggest from filters only when it's 0/None.
+    current_universe = float(rfp_in.section2.data_universe or 0)
+    if current_universe <= 0:
+        current_universe = compute_data_universe(rfp_in.section1)
+        rfp_in.section2.data_universe = current_universe
+    rfp_in.section3 = compute_section3(
+        rfp_in.section3, rfp_in.section1, data_universe=current_universe
+    )
     return rfp_in
 
 
@@ -366,13 +396,20 @@ async def get_reference():
             "Individual Contributor", "Entry", "Training", "Unpaid",
         ],
         "campaign_types": [
-            "MQL", "MQL with CQ", "MQL with QQ", "HQL", "BANT",
-            "Appointment-setup", "Social Media Spend",
+            "MQL", "MQL with CQ", "MQL with QQ",
+            "HQL",
+            "BANT - Digital", "BANT - Tele", "BANT +",
+            "Appointment Set-up",
+            "Social Media Spend",
             "Single touch", "Double touch", "Multi touch",
         ],
         "lead_types": LEAD_TYPES,
         "data_sources": DATA_SOURCES,
         "conversion_rates": CONVERSION_RATES,
+        "cpc_divisors": CPC_DIVISORS,
+        "cq_reductions": CQ_REDUCTIONS,
+        "qq_reductions": QQ_REDUCTIONS,
+        "tv_reduction": TV_REDUCTION,
     }
 
 
@@ -549,9 +586,9 @@ def _flat_row(d: dict) -> dict:
         "num_qq": ctc.get("num_qq", 0),
         "num_cq": ctc.get("num_cq", 0),
         "num_touches": ctc.get("num_touches", 0),
+        "with_tv": "Y" if ctc.get("with_tv") else "N",
         "data_universe": s2.get("data_universe", 0),
         "data_source": s3.get("data_source", ""),
-        "data_counts": s3.get("data_counts", 0),
         "grand_total_leads": s3.get("grand_total_leads", 0),
         "grand_total_cost": s3.get("grand_total_cost", 0),
         "blended_cpl": s3.get("blended_cpl", 0),

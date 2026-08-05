@@ -56,7 +56,10 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
         if (!active) return;
         setRfp((prev) => ({
           ...prev,
-          section2: res.section2,
+          // If user has explicitly entered a Data Universe (> 0), keep it; else accept auto-suggest.
+          section2: (Number(prev.section2.data_universe) || 0) > 0
+            ? prev.section2
+            : res.section2,
           section3: {
             ...prev.section3,
             // Preserve user-editable fields; merge only auto-computed values per row
@@ -82,8 +85,8 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
     // We trigger when inputs that affect computation change; debounce reduces churn.
   }, [
     JSON.stringify(debounced.section1),
+    debounced.section2.data_universe,
     debounced.section3.data_source,
-    debounced.section3.data_counts,
     JSON.stringify(debounced.section3.rows.map(r => ({ t: r.lead_type, c: r.cpl }))),
   ]);
 
@@ -132,25 +135,17 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
 
   // Derive the set of "active" lead types based on Campaign Types selected in Section 1.
   const campaignTypesSelected = s1.campaign_type_config.types || [];
-  const nCq = Number(s1.campaign_type_config.num_cq || 0);
-  const nQq = Number(s1.campaign_type_config.num_qq || 0);
   const targetedSet = new Set();
   const mapCampaign = (t) => {
-    if (t === "MQL with CQ") {
-      if (nCq >= 1 && nCq <= 3) return [`MQL+${nCq}CQ`];
-      return ["MQL+1CQ", "MQL+2CQ", "MQL+3CQ"];
+    if (["MQL", "MQL with CQ", "MQL with QQ", "Single touch", "Double touch", "Multi touch"].includes(t)) {
+      return ["MQL"];
     }
-    if (t === "MQL with QQ") {
-      if (nQq >= 1 && nQq <= 3) return [`MQL+${nQq}QQ`];
-      return ["MQL+1QQ", "MQL+2QQ", "MQL+3QQ"];
-    }
-    if (t === "Single touch") return ["MQL SINGLE TOUCH"];
-    if (t === "Double touch") return ["MQL DOUBLE TOUCH"];
-    if (t === "Multi touch") return ["MQL MULTI-TOUCH"];
     if (t === "HQL") return ["HQL"];
-    if (t === "BANT") return ["BANT"];
-    if (t === "Appointment-setup") return ["AG"];
-    if (t === "MQL") return ["MQL SINGLE TOUCH"];
+    if (t === "BANT - Digital") return ["BANT - DIGITAL"];
+    if (t === "BANT - Tele") return ["BANT - TELE"];
+    if (t === "BANT +") return ["BANT +"];
+    if (t === "BANT") return ["BANT - DIGITAL", "BANT - TELE", "BANT +"];
+    if (t === "Appointment Set-up" || t === "Appointment-setup") return ["APPOINTMENT SET-UP"];
     return [];
   };
   campaignTypesSelected.forEach((t) => mapCampaign(t).forEach((lt) => targetedSet.add(lt)));
@@ -400,20 +395,62 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
               onChange={(e) => updateCampType("num_touches", Number(e.target.value) || 0)}
             />
           </Field>
+          <Field label="With TV (Tele-Verification) · 10% reduction">
+            <div className="flex gap-2 mt-1">
+              {[
+                { key: false, label: "Off" },
+                { key: true, label: "On · reduce 10%" },
+              ].map((opt) => (
+                <button
+                  type="button"
+                  key={String(opt.key)}
+                  data-testid={`toggle-with-tv-${opt.key ? "on" : "off"}`}
+                  className={`btn-secondary flex-1 ${
+                    Boolean(s1.campaign_type_config.with_tv) === opt.key
+                      ? "bg-[#0A0A0A] text-white"
+                      : ""
+                  }`}
+                  onClick={() => updateCampType("with_tv", opt.key)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </Field>
         </div>
       </Section>
 
       {/* ============== SECTION 2: DATA UNIVERSE ============== */}
       <Section title="Section 02 — Data Universe Estimation">
-        <div data-testid="data-universe-block" className="bg-[#0A0A0A] text-white px-8 py-10 flex flex-col md:flex-row md:items-end md:justify-between gap-6">
-          <div>
-            <div className="font-label text-white/60">Estimated Data Universe</div>
-            <div className="font-serif-display italic text-white/70 text-base mt-3 max-w-md">
-              Auto-computed from Target Geography × Industries × Revenue & Employee bands × Contacts per Company.
+        <div data-testid="data-universe-block" className="bg-[#0A0A0A] text-white px-8 py-8 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+          <div className="max-w-md">
+            <div className="font-label text-white/60">Estimated Data Universe · editable</div>
+            <div className="font-serif-display italic text-white/70 text-base mt-3">
+              Auto-suggested from Target Geography × Industries × Revenue & Employee bands × Contacts per Company. Override with the number pulled from your data source.
             </div>
           </div>
-          <div data-testid="data-universe-value" className="kpi-num text-white">
-            {fmtNum(s2.data_universe)}
+          <div className="flex items-end gap-3">
+            <input
+              type="number" min="0"
+              data-testid="input-data-universe"
+              className="evcl-input text-right"
+              style={{background:"#1a1a1a",color:"#fff",fontSize:"1.6rem",width:"260px",borderBottomColor:"#fff"}}
+              value={s2.data_universe || 0}
+              onChange={(e) => setRfp((p) => ({
+                ...p, section2: { ...p.section2, data_universe: Number(e.target.value) || 0 },
+              }))}
+              placeholder="0"
+            />
+            <button
+              type="button"
+              data-testid="data-universe-reset"
+              className="btn-secondary"
+              style={{borderColor:"#fff",color:"#fff"}}
+              onClick={() => setRfp((p) => ({ ...p, section2: { ...p.section2, data_universe: 0 } }))}
+              title="Clear to trigger auto-suggest from filters"
+            >
+              [ Auto ]
+            </button>
           </div>
         </div>
       </Section>
@@ -421,7 +458,7 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
       {/* ============== SECTION 3: LEAD COMPUTATION ============== */}
       <Section title="Section 03 — Computation of Leads Quantity to be Delivered">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-5 mb-6">
-          <Field label="Data Source for Universe">
+          <Field label="Data Source">
             <select
               data-testid="input-data-source"
               className="evcl-input"
@@ -434,24 +471,21 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
               ))}
             </select>
           </Field>
-          <Field label="Data Counts (manual entry)">
-            <input
-              type="number" min="0"
-              data-testid="input-data-counts"
-              className="evcl-input"
-              value={s3.data_counts || 0}
-              onChange={(e) => updateS3("data_counts", Number(e.target.value) || 0)}
-              placeholder="Enter number manually"
-            />
-          </Field>
-          <div className="self-end">
-            <div className="font-label mb-2">Active Lead Types</div>
-            <div data-testid="active-lead-types" className="font-mono-tight text-sm bg-[#F0F0EE] px-3 py-2 border-l-2 border-[#0A0A0A]">
+          <Field label="Active Lead Types">
+            <div data-testid="active-lead-types" className="font-mono-tight text-sm bg-[#F0F0EE] px-3 py-2 border-l-2 border-[#0A0A0A] min-h-[42px] flex items-center">
               {targetedSet.size === 0
                 ? "Select Campaign Type(s) in Section 1"
                 : Array.from(targetedSet).join(" · ")}
             </div>
-          </div>
+          </Field>
+          <Field label="Modifiers in play">
+            <div className="font-mono-tight text-xs text-[#666] mt-1 space-y-0.5">
+              <div>CPC (Contacts/Co) = {s1.contacts_per_company || 0} · ÷{(ref.cpc_divisors || {})[s1.contacts_per_company] || 1}</div>
+              <div>CQ = {s1.campaign_type_config.num_cq || 0} · −{(((ref.cq_reductions || {})[s1.campaign_type_config.num_cq] || 0) * 100)}%</div>
+              <div>QQ = {s1.campaign_type_config.num_qq || 0} · −{(((ref.qq_reductions || {})[s1.campaign_type_config.num_qq] || 0) * 100)}%</div>
+              <div>TV = {s1.campaign_type_config.with_tv ? "ON · −10%" : "OFF"}</div>
+            </div>
+          </Field>
         </div>
         <div className="overflow-x-auto">
           <table className="evcl-table" data-testid="lead-computation-table">
@@ -509,8 +543,8 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
             </tbody>
           </table>
         </div>
-        <div className="font-mono-tight text-xs text-[#666] mt-3">
-          Only rows matching the Campaign Types selected in Section 1 are calculated. Lead Counts = Data Counts × source conversion %. Total Cost = CPL × Lead Counts.
+        <div className="font-mono-tight text-xs text-[#666] mt-3 leading-relaxed">
+          Formula per active row: <code>base = Data Universe × source%</code> → <code>÷ CPC divisor</code> → <code>× (1 − CQ%)</code> → <code>× (1 − QQ%)</code> → <code>× 0.9 if TV</code>. Total = CPL × Lead Counts.
         </div>
       </Section>
 

@@ -1,12 +1,12 @@
 import React from "react";
 
 export const LEAD_TYPES = [
-  "MQL+1CQ", "MQL+2CQ", "MQL+3CQ",
-  "MQL+1QQ", "MQL+2QQ", "MQL+3QQ",
-  "MQL SINGLE TOUCH",
-  "MQL DOUBLE TOUCH",
-  "MQL MULTI-TOUCH",
-  "HQL", "BANT", "AG",
+  "MQL",
+  "HQL",
+  "BANT - DIGITAL",
+  "BANT - TELE",
+  "BANT +",
+  "APPOINTMENT SET-UP",
 ];
 
 export const buildClientIds = () => {
@@ -36,12 +36,11 @@ export const emptyRFP = () => ({
     contacts_per_company: 1,
     exclusions: "",
     suppression_file: "",
-    campaign_type_config: { types: [], num_qq: 0, num_cq: 0, num_touches: 0 },
+    campaign_type_config: { types: [], num_qq: 0, num_cq: 0, num_touches: 0, with_tv: false },
   },
   section2: { data_universe: 0 },
   section3: {
     data_source: "",
-    data_counts: 0,
     rows: LEAD_TYPES.map((lt) => ({
       lead_type: lt, cpl: 0, lead_counts: 0, total_cost: 0,
     })),
