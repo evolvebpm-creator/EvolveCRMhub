@@ -58,13 +58,21 @@ function App() {
       <header className="border-b border-[#DCDCCF] bg-[#F4F4F0]">
         <div className="max-w-[1600px] mx-auto px-4 md:px-8 pt-10 pb-4">
           <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <div className="font-label">EVCL · Operations</div>
-              <h1 className="font-serif-display text-5xl md:text-6xl italic mt-1">
-                RFP Master <span className="not-italic">Tracking</span>
-              </h1>
-              <div className="font-mono-tight text-xs text-[#666] mt-2">
-                A single source of truth for lead generation campaign requests · auto-computed universe & lead economics.
+            <div className="flex items-start gap-5">
+              <img
+                src="/evolvebpm-logo.png"
+                alt="EvolveBPM"
+                data-testid="app-logo"
+                className="h-14 md:h-16 w-auto mt-1"
+              />
+              <div>
+                <div className="font-label">EVCL · Operations</div>
+                <h1 className="font-serif-display text-5xl md:text-6xl italic mt-1">
+                  RFP Master <span className="not-italic">Tracking</span>
+                </h1>
+                <div className="font-mono-tight text-xs text-[#666] mt-2">
+                  A single source of truth for lead generation campaign requests · auto-computed universe & lead economics.
+                </div>
               </div>
             </div>
             <div data-testid="tab-nav" className="flex">
@@ -107,8 +115,11 @@ function App() {
       </main>
 
       <footer className="border-t border-[#DCDCCF] mt-16">
-        <div className="max-w-[1600px] mx-auto px-4 md:px-8 py-6 flex justify-between font-mono-tight text-xs text-[#666]">
-          <div>EVCL · RFP Master Tracking · Internal Ops Console</div>
+        <div className="max-w-[1600px] mx-auto px-4 md:px-8 py-6 flex items-center justify-between font-mono-tight text-xs text-[#666]">
+          <div className="flex items-center gap-3">
+            <img src="/evolvebpm-logo.png" alt="EvolveBPM" className="h-6 w-auto opacity-70" />
+            <span>EvolveBPM · Decoding the sales ecosystem</span>
+          </div>
           <div>v1.0 · {new Date().getFullYear()}</div>
         </div>
       </footer>

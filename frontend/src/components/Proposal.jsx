@@ -19,6 +19,19 @@ const setDeep = (obj, path, value) => {
 };
 
 export default function Proposal({ rfp, reference, onBack }) {
+  const [clientLogo, setClientLogo] = React.useState(rfp?.section1?.client_logo || "");
+
+  const handleLogoUpload = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (file.size > 500 * 1024) {
+      alert("Please upload a logo under 500KB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setClientLogo(String(reader.result || ""));
+    reader.readAsDataURL(file);
+  };
   const [variantA, setVariantA] = React.useState(() => {
     const v = cloneVariant(rfp);
     return { ...v, __label: "Option A · Focused Scope" };
@@ -76,6 +89,54 @@ export default function Proposal({ rfp, reference, onBack }) {
 
       {/* Cover — visible in print */}
       <div className="print-cover panel p-8">
+        {/* Agency brand strip */}
+        <div className="flex items-center justify-between pb-6 mb-6 border-b border-[#DCDCCF]">
+          <img
+            src="/evolvebpm-logo.png"
+            alt="EvolveBPM"
+            data-testid="proposal-agency-logo"
+            className="h-16 md:h-20 w-auto"
+          />
+          {clientLogo ? (
+            <div className="text-right flex flex-col items-end">
+              <div className="font-label">Prepared For</div>
+              <img
+                src={clientLogo}
+                alt="Client logo"
+                data-testid="proposal-client-logo"
+                className="max-h-16 md:max-h-20 w-auto mt-2"
+              />
+              <button
+                type="button"
+                data-testid="proposal-client-logo-remove"
+                className="font-mono-tight text-xs text-[#D92D20] mt-2 no-print"
+                onClick={() => setClientLogo("")}
+              >
+                remove
+              </button>
+            </div>
+          ) : (
+            <div className="text-right">
+              <div className="font-label">Prepared By</div>
+              <div className="font-serif-display text-lg mt-1">EvolveBPM</div>
+              <div className="font-mono-tight text-xs text-[#666] italic">Decoding the sales ecosystem</div>
+              <label
+                data-testid="proposal-client-logo-upload"
+                className="btn-secondary inline-block mt-3 cursor-pointer no-print"
+                style={{ padding: "0.4rem 0.75rem", fontSize: "0.65rem" }}
+              >
+                [ + Add Client Logo ]
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                  onChange={handleLogoUpload}
+                  className="hidden"
+                />
+              </label>
+            </div>
+          )}
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <div className="md:col-span-2">
             <div className="font-label">Proposal Prepared For</div>
