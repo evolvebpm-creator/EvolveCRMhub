@@ -4,6 +4,7 @@ import { fetchReference } from "@/lib/apiClient";
 import Dashboard from "@/components/Dashboard";
 import RFPForm from "@/components/RFPForm";
 import RFPList from "@/components/RFPList";
+import Proposal from "@/components/Proposal";
 
 const TABS = [
   { key: "dashboard", label: "[ 01 / Dashboard ]" },
@@ -15,6 +16,7 @@ function App() {
   const [tab, setTab] = React.useState("dashboard");
   const [reference, setReference] = React.useState(null);
   const [editing, setEditing] = React.useState(null);
+  const [proposalRfp, setProposalRfp] = React.useState(null);
   const [refreshKey, setRefreshKey] = React.useState(0);
 
   React.useEffect(() => {
@@ -29,6 +31,11 @@ function App() {
   const startEdit = (rfp) => {
     setEditing(rfp);
     setTab("form");
+  };
+
+  const startProposal = (rfp) => {
+    setProposalRfp(rfp);
+    setTab("proposal");
   };
 
   const handleSaved = () => {
@@ -88,7 +95,14 @@ function App() {
           />
         )}
         {tab === "list" && (
-          <RFPList onNew={startNew} onEdit={startEdit} refreshKey={refreshKey} />
+          <RFPList onNew={startNew} onEdit={startEdit} onProposal={startProposal} refreshKey={refreshKey} />
+        )}
+        {tab === "proposal" && proposalRfp && (
+          <Proposal
+            rfp={proposalRfp}
+            reference={reference}
+            onBack={() => { setProposalRfp(null); setTab("list"); }}
+          />
         )}
       </main>
 

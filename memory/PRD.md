@@ -66,9 +66,10 @@ total_cost  = round(cpl × lead_counts, 2)
 - **Iter 2**: Data Source + Data Counts in Section 3; per-source conversion matrix; race-safe preview merge.
 - **Iter 3**: Job Titles paste textarea; Type of Campaign multi-select; Section 3 CPC removed → CPL is direct input; only campaign-type-matching rows compute leads.
 - **Iter 4**: Auto-generated Master Ref `EV_Q_{NNN}_{YYYYMMDD}`; Job Seniority separate multi-select.
-- **Iter 5 (current)**: NEW lead-type list (6 rows), NEW sources (VibeProspect/Prospeo/Apollo/Others), NEW conversion matrix based on Data Universe, Data Counts removed, Data Universe editable, stacked CPC/CQ/QQ/TV modifiers.
+- **Iter 5**: NEW lead-type list (6 rows), NEW sources (VibeProspect/Prospeo/Apollo/Others), NEW conversion matrix based on Data Universe, Data Counts removed, Data Universe editable, stacked CPC/CQ/QQ/TV modifiers.
+- **Iter 6 (current)**: Client-facing **Proposal view** launchable from the RFP list. Two side-by-side variations (Option A / Option B) with individually editable demographics — geography, industries, revenue, employee band, job functions, seniority, titles, contacts-per-company, CQ/QQ/TV, campaign types, data source, data universe, CPL per lead type. Each variant lives-recomputes via `/api/rfps/preview`. Side-by-side comparison table with Δ (B−A). Print-ready (CSS `@media print` hides toolbars and editor drawers). Screen shows editor drawers on demand.
 - **Deployed**: `https://app-from-specs-9.emergent.host`.
-- **Testing**: 22/22 backend pytest + full Playwright E2E pass (`/app/test_reports/iteration_5.json`, 100%/100%).
+- **Testing**: 22/22 backend pytest + full Playwright E2E pass (`/app/test_reports/iteration_5.json`).
 
 ## Backlog
 - P1: Validate `end_date ≥ start_date`.

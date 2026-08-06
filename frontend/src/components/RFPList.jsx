@@ -1,9 +1,9 @@
 import React from "react";
 import { fetchRfps, deleteRfp } from "../lib/apiClient";
 import { fmtNum, fmtCurrency } from "../lib/rfpUtils";
-import { Plus, Pencil, Trash2, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, FileText } from "lucide-react";
 
-export default function RFPList({ onNew, onEdit, refreshKey }) {
+export default function RFPList({ onNew, onEdit, onProposal, refreshKey }) {
   const [rows, setRows] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
   const [filter, setFilter] = React.useState({ converted: "", search: "" });
@@ -116,6 +116,12 @@ export default function RFPList({ onNew, onEdit, refreshKey }) {
                   <td className="font-mono-tight text-sm">{s4.rfp_submitted_date || "—"}</td>
                   <td>
                     <div className="flex gap-2 justify-end">
+                      <button
+                        data-testid={`proposal-${r.id}`}
+                        className="btn-secondary"
+                        title="Build client-facing proposal with 2 variations"
+                        onClick={() => onProposal && onProposal(r)}
+                      ><FileText size={12} strokeWidth={1.5} /></button>
                       <button
                         data-testid={`edit-${r.id}`}
                         className="btn-secondary"
