@@ -114,6 +114,9 @@ export default function Dashboard({ refreshKey }) {
         </ChartPanel>
       </div>
 
+      {/* TAL Match validity band */}
+      <TalMatchPanel talStats={stats.tal_stats} />
+
       {/* Lead breakdown table */}
       <div>
         <h3 className="font-label mb-4">Lead-type Volume · breakdown</h3>
@@ -162,6 +165,43 @@ const ChartPanel = ({ title, children, testId }) => (
     {children}
   </div>
 );
+
+const TalMatchPanel = ({ talStats }) => {
+  const stats = talStats || { tal_rfp_count: 0, avg_match_pct: 0, distribution: [] };
+  const dist = stats.distribution || [];
+  const empty = (stats.tal_rfp_count || 0) === 0;
+  return (
+    <div data-testid="chart-tal-match" className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-[#DCDCCF] border border-[#DCDCCF]">
+      <div className="bg-white p-6 md:p-8">
+        <div className="font-label">TAL Match Validity · avg across TAL RFPs</div>
+        <div className="kpi-num mt-3" style={{fontSize:"3rem"}} data-testid="tal-avg-match">
+          {stats.avg_match_pct.toFixed(2)}%
+        </div>
+        <div className="font-mono-tight text-xs text-[#666] mt-2">
+          {stats.tal_rfp_count} TAL-scoped RFP(s) logged
+        </div>
+      </div>
+      <div className="bg-white p-6 lg:col-span-2">
+        <div className="font-label mb-3">Match % Distribution</div>
+        {empty ? (
+          <div className="font-mono-tight text-sm text-[#666] py-8 text-center">
+            No TAL-scoped RFPs yet.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={dist}>
+              <CartesianGrid stroke="#DCDCCF" vertical={false} />
+              <XAxis dataKey="bucket" tick={axisTick} stroke="#0A0A0A" />
+              <YAxis tick={axisTick} stroke="#0A0A0A" allowDecimals={false} />
+              <Tooltip contentStyle={tooltipStyle} />
+              <Bar dataKey="count" fill="#0A0A0A" />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const tooltipStyle = {
   border: "1px solid #0A0A0A",

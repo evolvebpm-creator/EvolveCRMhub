@@ -146,6 +146,10 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
     if (t === "BANT +") return ["BANT +"];
     if (t === "BANT") return ["BANT - DIGITAL", "BANT - TELE", "BANT +"];
     if (t === "Appointment Set-up" || t === "Appointment-setup") return ["APPOINTMENT SET-UP"];
+    if (t === "Webinar Registrations") return ["WEBINAR REGISTRATIONS"];
+    if (t === "Webinar Attendees") return ["WEBINAR ATTENDEES"];
+    if (t === "LIVE Event Registrations") return ["LIVE EVENT REGISTRATIONS"];
+    if (t === "LIVE Event Attendees") return ["LIVE EVENT ATTENDEES"];
     return [];
   };
   campaignTypesSelected.forEach((t) => mapCampaign(t).forEach((lt) => targetedSet.add(lt)));
@@ -502,7 +506,7 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
               placeholder="Select one or more campaign types…"
             />
           </Field>
-          <Field label="Number of CQ">
+          <Field label="Number of CQ (MQL only)">
             <input
               type="number" min="0"
               data-testid="input-num-cq"
@@ -511,7 +515,7 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
               onChange={(e) => updateCampType("num_cq", Number(e.target.value) || 0)}
             />
           </Field>
-          <Field label="Number of QQ">
+          <Field label="Number of QQ (MQL only)">
             <input
               type="number" min="0"
               data-testid="input-num-qq"
@@ -605,9 +609,9 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
           <Field label="Modifiers in play">
             <div className="font-mono-tight text-xs text-[#666] mt-1 space-y-0.5">
               <div>CPC (Contacts/Co) = {s1.contacts_per_company || 0} · ÷{(ref.cpc_divisors || {})[s1.contacts_per_company] || 1}</div>
-              <div>CQ = {s1.campaign_type_config.num_cq || 0} · −{(((ref.cq_reductions || {})[s1.campaign_type_config.num_cq] || 0) * 100)}%</div>
-              <div>QQ = {s1.campaign_type_config.num_qq || 0} · −{(((ref.qq_reductions || {})[s1.campaign_type_config.num_qq] || 0) * 100)}%</div>
-              <div>TV = {s1.campaign_type_config.with_tv ? "ON · MQL −10%" : "OFF"}</div>
+              <div>CQ (MQL only) = {s1.campaign_type_config.num_cq || 0} · −{(((ref.cq_reductions || {})[s1.campaign_type_config.num_cq] || 0) * 100)}%</div>
+              <div>QQ (MQL only) = {s1.campaign_type_config.num_qq || 0} · −{(((ref.qq_reductions || {})[s1.campaign_type_config.num_qq] || 0) * 100)}%</div>
+              <div>TV (MQL only) = {s1.campaign_type_config.with_tv ? "ON · −10%" : "OFF"}</div>
             </div>
           </Field>
         </div>

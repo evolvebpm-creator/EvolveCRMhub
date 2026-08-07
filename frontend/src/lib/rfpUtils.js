@@ -7,6 +7,10 @@ export const LEAD_TYPES = [
   "BANT - TELE",
   "BANT +",
   "APPOINTMENT SET-UP",
+  "WEBINAR REGISTRATIONS",
+  "WEBINAR ATTENDEES",
+  "LIVE EVENT REGISTRATIONS",
+  "LIVE EVENT ATTENDEES",
 ];
 
 export const buildClientIds = () => {

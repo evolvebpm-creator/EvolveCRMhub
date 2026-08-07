@@ -38,15 +38,20 @@ export default function Proposal({ rfp, reference, onBack }) {
   });
   const [variantB, setVariantB] = React.useState(() => {
     const v = cloneVariant(rfp);
-    // Nudge B to be broader by default: adds a modest widening if fields are set
     return { ...v, __label: "Option B · Expanded Reach" };
+  });
+  const [variantC, setVariantC] = React.useState(() => {
+    const v = cloneVariant(rfp);
+    return { ...v, __label: "Option C · Premium Scale" };
   });
 
   const [computedA, setComputedA] = React.useState({ section2: rfp.section2, section3: rfp.section3 });
   const [computedB, setComputedB] = React.useState({ section2: rfp.section2, section3: rfp.section3 });
+  const [computedC, setComputedC] = React.useState({ section2: rfp.section2, section3: rfp.section3 });
 
   const dbA = useDebounce(variantA, 350);
   const dbB = useDebounce(variantB, 350);
+  const dbC = useDebounce(variantC, 350);
 
   React.useEffect(() => {
     let active = true;
@@ -58,6 +63,11 @@ export default function Proposal({ rfp, reference, onBack }) {
     previewCompute(dbB).then((r) => { if (active) setComputedB(r); }).catch(() => {});
     return () => { active = false; };
   }, [dbB]);
+  React.useEffect(() => {
+    let active = true;
+    previewCompute(dbC).then((r) => { if (active) setComputedC(r); }).catch(() => {});
+    return () => { active = false; };
+  }, [dbC]);
 
   const s1 = rfp.section1 || {};
   const ref = reference || {};
@@ -170,13 +180,13 @@ export default function Proposal({ rfp, reference, onBack }) {
         <div className="mt-8 pt-6 border-t border-[#DCDCCF]">
           <div className="font-label">Executive Summary</div>
           <p className="font-serif-display italic text-lg leading-snug mt-2 max-w-3xl">
-            We are pleased to propose the following two options for this campaign. Option A represents the tightest interpretation of the brief; Option B expands the target parameters to deliver higher volumes at the same commercial terms. Both options are calibrated against the same conversion matrix and quality bar.
+            We are pleased to propose the following three options for this campaign. Option A represents the tightest interpretation of the brief, Option B expands the target parameters to deliver higher volumes, and Option C offers premium scale for maximum reach. All three are calibrated against the same conversion matrix and quality bar.
           </p>
         </div>
       </div>
 
       {/* Options grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <VariantCard
           testId="variant-a"
           variant={variantA}
@@ -193,14 +203,23 @@ export default function Proposal({ rfp, reference, onBack }) {
           reference={ref}
           accent="red"
         />
+        <VariantCard
+          testId="variant-c"
+          variant={variantC}
+          setVariant={setVariantC}
+          computed={computedC}
+          reference={ref}
+          accent="green"
+        />
       </div>
 
       {/* Side-by-side comparison */}
       <ComparisonTable
-        variantA={variantA}
-        computedA={computedA}
-        variantB={variantB}
-        computedB={computedB}
+        variants={[
+          { label: variantA.__label, computed: computedA, testId: "variant-a" },
+          { label: variantB.__label, computed: computedB, testId: "variant-b" },
+          { label: variantC.__label, computed: computedC, testId: "variant-c" },
+        ]}
       />
 
       {/* Terms footer */}
@@ -244,7 +263,7 @@ function VariantCard({ testId, variant, setVariant, computed, reference, accent 
   const activeRows = (s3.rows || []).filter((r) => r.lead_counts > 0);
 
   const accentBar =
-    accent === "red" ? "bg-[#D92D20]" : "bg-[#0A0A0A]";
+    accent === "red" ? "bg-[#D92D20]" : accent === "green" ? "bg-[#039855]" : "bg-[#0A0A0A]";
 
   const update = (path, value) => setVariant((v) => setDeep(v, path, value));
 
@@ -574,14 +593,16 @@ function VariantEditor({ testId, variant, reference, update }) {
   );
 }
 
-function ComparisonTable({ variantA, computedA, variantB, computedB }) {
-  const rowsA = (computedA.section3 || {}).rows || [];
-  const rowsB = (computedB.section3 || {}).rows || [];
-  const allTypes = LEAD_TYPES.filter((lt) => {
-    const a = rowsA.find((r) => r.lead_type === lt);
-    const b = rowsB.find((r) => r.lead_type === lt);
-    return (a && a.lead_counts > 0) || (b && b.lead_counts > 0);
-  });
+function ComparisonTable({ variants }) {
+  const rowsPer = variants.map((v) => (v.computed.section3 || {}).rows || []);
+  const allTypes = LEAD_TYPES.filter((lt) =>
+    rowsPer.some((rows) => {
+      const r = rows.find((x) => x.lead_type === lt);
+      return r && r.lead_counts > 0;
+    })
+  );
+  const getRow = (rows, lt) => rows.find((r) => r.lead_type === lt) || { lead_counts: 0 };
+  const baseline = 0; // A is the baseline for delta
   return (
     <div className="panel" data-testid="proposal-comparison">
       <div className="p-6 md:p-8">
@@ -590,50 +611,49 @@ function ComparisonTable({ variantA, computedA, variantB, computedB }) {
           <thead>
             <tr>
               <th>Metric</th>
-              <th className="num">{variantA.__label || "Option A"}</th>
-              <th className="num">{variantB.__label || "Option B"}</th>
-              <th className="num">Δ (B − A)</th>
+              {variants.map((v, i) => (
+                <th key={i} className="num">{v.label}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {allTypes.map((lt) => {
-              const a = rowsA.find((r) => r.lead_type === lt) || { lead_counts: 0 };
-              const b = rowsB.find((r) => r.lead_type === lt) || { lead_counts: 0 };
-              const delta = b.lead_counts - a.lead_counts;
-              return (
-                <tr key={lt} data-testid={`compare-row-${lt}`}>
-                  <td className="font-mono-tight uppercase">{lt}</td>
-                  <td className="num">{fmtNum(a.lead_counts)}</td>
-                  <td className="num">{fmtNum(b.lead_counts)}</td>
-                  <td className={`num ${delta > 0 ? "text-[#039855]" : delta < 0 ? "text-[#D92D20]" : ""}`}>
-                    {delta > 0 ? "+" : ""}{fmtNum(delta)}
-                  </td>
-                </tr>
-              );
-            })}
+            {allTypes.map((lt) => (
+              <tr key={lt} data-testid={`compare-row-${lt}`}>
+                <td className="font-mono-tight uppercase">{lt}</td>
+                {rowsPer.map((rows, i) => {
+                  const r = getRow(rows, lt);
+                  const baseCount = getRow(rowsPer[baseline], lt).lead_counts || 0;
+                  const delta = r.lead_counts - baseCount;
+                  return (
+                    <td key={i} className="num">
+                      {fmtNum(r.lead_counts)}
+                      {i !== baseline && delta !== 0 && (
+                        <span className={`font-mono-tight text-xs ml-2 ${delta > 0 ? "text-[#039855]" : "text-[#D92D20]"}`}>
+                          ({delta > 0 ? "+" : ""}{fmtNum(delta)})
+                        </span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
             <tr className="border-t-2 border-[#0A0A0A] font-semibold">
               <td className="font-label">Total Leads</td>
-              <td className="num">{fmtNum((computedA.section3 || {}).grand_total_leads)}</td>
-              <td className="num">{fmtNum((computedB.section3 || {}).grand_total_leads)}</td>
-              <td className="num">
-                {fmtNum(((computedB.section3 || {}).grand_total_leads || 0) - ((computedA.section3 || {}).grand_total_leads || 0))}
-              </td>
+              {variants.map((v, i) => (
+                <td key={i} className="num">{fmtNum((v.computed.section3 || {}).grand_total_leads)}</td>
+              ))}
             </tr>
             <tr>
               <td className="font-label">Total Cost</td>
-              <td className="num">{fmtCurrency((computedA.section3 || {}).grand_total_cost)}</td>
-              <td className="num">{fmtCurrency((computedB.section3 || {}).grand_total_cost)}</td>
-              <td className="num">
-                {fmtCurrency(((computedB.section3 || {}).grand_total_cost || 0) - ((computedA.section3 || {}).grand_total_cost || 0))}
-              </td>
+              {variants.map((v, i) => (
+                <td key={i} className="num">{fmtCurrency((v.computed.section3 || {}).grand_total_cost)}</td>
+              ))}
             </tr>
             <tr>
               <td className="font-label">Blended CPL</td>
-              <td className="num">{fmtCurrency((computedA.section3 || {}).blended_cpl)}</td>
-              <td className="num">{fmtCurrency((computedB.section3 || {}).blended_cpl)}</td>
-              <td className="num">
-                {fmtCurrency(((computedB.section3 || {}).blended_cpl || 0) - ((computedA.section3 || {}).blended_cpl || 0))}
-              </td>
+              {variants.map((v, i) => (
+                <td key={i} className="num">{fmtCurrency((v.computed.section3 || {}).blended_cpl)}</td>
+              ))}
             </tr>
           </tbody>
         </table>

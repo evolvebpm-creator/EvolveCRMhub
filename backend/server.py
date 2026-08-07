@@ -35,6 +35,10 @@ LEAD_TYPES = [
     "BANT - TELE",
     "BANT +",
     "APPOINTMENT SET-UP",
+    "WEBINAR REGISTRATIONS",
+    "WEBINAR ATTENDEES",
+    "LIVE EVENT REGISTRATIONS",
+    "LIVE EVENT ATTENDEES",
 ]
 
 # Universe estimation reference values (heuristic — used only when auto-suggesting
@@ -57,26 +61,37 @@ REVENUE_BAND_WEIGHT = {
 DATA_SOURCES = ["VibeProspect", "Prospeo", "Apollo", "Others"]
 
 # Per-source conversion rates (% of Data Universe → leads of each type).
+# Webinar/Live-event rates are source-independent (spec supplies fixed rates).
+_EVENT_RATES = {
+    "WEBINAR REGISTRATIONS": 25,       # data_universe × 25%
+    "WEBINAR ATTENDEES": 5,            # webinar_registrations × 20% = universe × 5%
+    "LIVE EVENT REGISTRATIONS": 25,    # data_universe × 25%
+    "LIVE EVENT ATTENDEES": 3.75,      # live_event_registrations × 15% = universe × 3.75%
+}
 CONVERSION_RATES: Dict[str, Dict[str, float]] = {
     "VibeProspect": {
         "MQL": 45, "HQL": 25,
         "BANT - DIGITAL": 15, "BANT - TELE": 10, "BANT +": 7.5,
         "APPOINTMENT SET-UP": 5,
+        **_EVENT_RATES,
     },
     "Prospeo": {
         "MQL": 35, "HQL": 20,
         "BANT - DIGITAL": 10, "BANT - TELE": 8, "BANT +": 5,
         "APPOINTMENT SET-UP": 3,
+        **_EVENT_RATES,
     },
     "Apollo": {
         "MQL": 25, "HQL": 15,
         "BANT - DIGITAL": 10, "BANT - TELE": 5, "BANT +": 3,
         "APPOINTMENT SET-UP": 2,
+        **_EVENT_RATES,
     },
     "Others": {
         "MQL": 15, "HQL": 10,
         "BANT - DIGITAL": 5, "BANT - TELE": 3, "BANT +": 2,
         "APPOINTMENT SET-UP": 1,
+        **_EVENT_RATES,
     },
 }
 
@@ -119,6 +134,14 @@ def campaign_to_lead_types(cfg) -> List[str]:
             result.extend(["BANT - DIGITAL", "BANT - TELE", "BANT +"])
         elif t in ("Appointment Set-up", "Appointment-setup", "APPOINTMENT SET-UP"):
             result.append("APPOINTMENT SET-UP")
+        elif t == "Webinar Registrations":
+            result.append("WEBINAR REGISTRATIONS")
+        elif t == "Webinar Attendees":
+            result.append("WEBINAR ATTENDEES")
+        elif t == "LIVE Event Registrations":
+            result.append("LIVE EVENT REGISTRATIONS")
+        elif t == "LIVE Event Attendees":
+            result.append("LIVE EVENT ATTENDEES")
         # "Social Media Spend" and unknown → no lead-type mapping
     # dedupe preserving order
     seen = set()
@@ -304,11 +327,12 @@ def compute_section3(
             pct = float(rate_map.get(r.lead_type, 0))
             base = universe * pct / 100.0
             leads = base / cpc_divisor
-            leads = leads * (1.0 - cq_reduction)
-            leads = leads * (1.0 - qq_reduction)
-            if with_tv and r.lead_type == "MQL":
-                # Tele-Verification only reduces MQL leads (not HQL, BANT, AG, etc.)
-                leads = leads * (1.0 - TV_REDUCTION)
+            # CQ / QQ / TV reductions apply ONLY to the MQL row per spec.
+            if r.lead_type == "MQL":
+                leads = leads * (1.0 - cq_reduction)
+                leads = leads * (1.0 - qq_reduction)
+                if with_tv:
+                    leads = leads * (1.0 - TV_REDUCTION)
             lc = round(leads, 0)
         else:
             lc = 0.0
@@ -428,6 +452,8 @@ async def get_reference():
             "HQL",
             "BANT - Digital", "BANT - Tele", "BANT +",
             "Appointment Set-up",
+            "Webinar Registrations", "Webinar Attendees",
+            "LIVE Event Registrations", "LIVE Event Attendees",
             "Social Media Spend",
             "Single touch", "Double touch", "Multi touch",
         ],
@@ -565,6 +591,27 @@ async def get_stats():
         reverse=True,
     )[:8]
 
+    # TAL match stats (across TAL-scoped RFPs).
+    tal_scoped = [
+        d for d in docs
+        if ((d.get("section1") or {}).get("scope") or {}).get("type") == "TAL"
+    ]
+    tal_bucket = {"0-25%": 0, "25-50%": 0, "50-75%": 0, "75-100%": 0}
+    tal_pcts: List[float] = []
+    for d in tal_scoped:
+        tal = ((d.get("section1") or {}).get("scope") or {}).get("tal") or {}
+        pct = float(tal.get("match_pct") or 0)
+        tal_pcts.append(pct)
+        if pct < 25:
+            tal_bucket["0-25%"] += 1
+        elif pct < 50:
+            tal_bucket["25-50%"] += 1
+        elif pct < 75:
+            tal_bucket["50-75%"] += 1
+        else:
+            tal_bucket["75-100%"] += 1
+    tal_avg = round(sum(tal_pcts) / len(tal_pcts), 2) if tal_pcts else 0.0
+
     return {
         "total_rfps": total,
         "converted_rfps": converted,
@@ -578,6 +625,13 @@ async def get_stats():
         ],
         "monthly_series": monthly_series,
         "top_clients": top_clients,
+        "tal_stats": {
+            "tal_rfp_count": len(tal_scoped),
+            "avg_match_pct": tal_avg,
+            "distribution": [
+                {"bucket": k, "count": v} for k, v in tal_bucket.items()
+            ],
+        },
     }
 
 
