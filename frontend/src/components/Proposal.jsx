@@ -260,6 +260,24 @@ function VariantCard({ testId, variant, setVariant, computed, reference, accent 
           onChange={(e) => setVariant((v) => ({ ...v, __label: e.target.value }))}
         />
 
+        {/* Data Universe — prominent editable input per variant */}
+        <div className="bg-[#0A0A0A] text-white px-5 py-4 flex items-center justify-between gap-4">
+          <div>
+            <div className="font-label text-white/60">Data Universe</div>
+            <div className="font-mono-tight text-xs text-white/50 mt-1">
+              Manual input · drives Section-3 lead volumes
+            </div>
+          </div>
+          <input
+            type="number" min="0"
+            data-testid={`${testId}-universe-inline`}
+            className="evcl-input text-right"
+            style={{background:"#1a1a1a",color:"#fff",fontSize:"1.5rem",width:"200px",borderBottomColor:"#fff"}}
+            value={(variant.section2 || {}).data_universe || 0}
+            onChange={(e) => setVariant((v) => setDeep(v, "section2.data_universe", Number(e.target.value) || 0))}
+          />
+        </div>
+
         {/* Snapshot chips (client-facing) */}
         <div className="grid grid-cols-2 gap-x-6 gap-y-3">
           <SnapChip label="Data Universe">

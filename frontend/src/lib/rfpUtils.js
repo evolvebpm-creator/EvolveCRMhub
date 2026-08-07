@@ -21,6 +21,7 @@ export const emptyRFP = () => ({
   section1: {
     rfp_master_tracking_sheet: "",
     date_of_rfp: "",
+    scope: { type: "", tal: { total_count: 0, valid_domain_count: 0, match_count: 0, match_pct: 0 } },
     campaign_run_date: { start_date: "", end_date: "" },
     client_id: "",
     campaign_name: "",

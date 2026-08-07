@@ -145,9 +145,22 @@ class CampaignTypeConfig(BaseModel):
     with_tv: bool = False  # Tele-Verification toggle (10% reduction)
 
 
+class TALDetails(BaseModel):
+    total_count: float = 0
+    valid_domain_count: float = 0
+    match_count: float = 0
+    match_pct: float = 0  # auto: match_count / total_count × 100
+
+
+class RFPScope(BaseModel):
+    type: Optional[str] = ""  # "TAL" or "Whitespace"
+    tal: TALDetails = Field(default_factory=TALDetails)
+
+
 class Section1Discovery(BaseModel):
     rfp_master_tracking_sheet: Optional[str] = None
     date_of_rfp: Optional[str] = None
+    scope: RFPScope = Field(default_factory=RFPScope)
     campaign_run_date: CampaignRunDate = Field(default_factory=CampaignRunDate)
     client_id: Optional[str] = None  # EVCL001 to EVCL0100
     campaign_name: Optional[str] = None
@@ -293,7 +306,8 @@ def compute_section3(
             leads = base / cpc_divisor
             leads = leads * (1.0 - cq_reduction)
             leads = leads * (1.0 - qq_reduction)
-            if with_tv:
+            if with_tv and r.lead_type == "MQL":
+                # Tele-Verification only reduces MQL leads (not HQL, BANT, AG, etc.)
                 leads = leads * (1.0 - TV_REDUCTION)
             lc = round(leads, 0)
         else:
@@ -337,14 +351,28 @@ def rfp_to_doc(rfp: RFP) -> dict:
     return d
 
 
+def compute_scope(scope: RFPScope) -> RFPScope:
+    """Auto-compute TAL match % when scope=TAL."""
+    tal = scope.tal
+    total = float(tal.total_count or 0)
+    matched = float(tal.match_count or 0)
+    pct = round((matched / total) * 100.0, 2) if total > 0 else 0.0
+    return RFPScope(type=scope.type, tal=TALDetails(
+        total_count=total,
+        valid_domain_count=float(tal.valid_domain_count or 0),
+        match_count=matched,
+        match_pct=pct,
+    ))
+
+
 def apply_compute(rfp_in: RFPBase) -> RFPBase:
-    # Data Universe is user-editable. Auto-suggest from filters only when it's 0/None.
-    current_universe = float(rfp_in.section2.data_universe or 0)
-    if current_universe <= 0:
-        current_universe = compute_data_universe(rfp_in.section1)
-        rfp_in.section2.data_universe = current_universe
+    # Data Universe is a MANUAL input (no auto-suggest). We simply pass it through.
+    universe = float(rfp_in.section2.data_universe or 0)
+    rfp_in.section2.data_universe = universe
+    # Auto-compute Scope's TAL match %.
+    rfp_in.section1.scope = compute_scope(rfp_in.section1.scope)
     rfp_in.section3 = compute_section3(
-        rfp_in.section3, rfp_in.section1, data_universe=current_universe
+        rfp_in.section3, rfp_in.section1, data_universe=universe
     )
     return rfp_in
 
@@ -563,8 +591,15 @@ def _flat_row(d: dict) -> dict:
     s4 = d.get("section4") or {}
     crd = s1.get("campaign_run_date") or {}
     ctc = s1.get("campaign_type_config") or {}
+    scope = s1.get("scope") or {}
+    tal = scope.get("tal") or {}
     return {
         "rfp_id": d.get("id"),
+        "scope_type": scope.get("type", ""),
+        "tal_total": tal.get("total_count", 0),
+        "tal_valid_domains": tal.get("valid_domain_count", 0),
+        "tal_match_count": tal.get("match_count", 0),
+        "tal_match_pct": tal.get("match_pct", 0),
         "date_of_rfp": s1.get("date_of_rfp", ""),
         "campaign_start": crd.get("start_date", ""),
         "campaign_end": crd.get("end_date", ""),

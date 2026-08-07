@@ -193,6 +193,140 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
         </div>
       )}
 
+      {/* ============== SECTION 00: RFP SCOPE ============== */}
+      <Section title="Section 00 — RFP Scope">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-5">
+          <Field label="Scope Type">
+            <div className="flex gap-2 mt-1">
+              {["TAL", "Whitespace"].map((opt) => (
+                <button
+                  type="button"
+                  key={opt}
+                  data-testid={`toggle-scope-${opt.toLowerCase()}`}
+                  className={`btn-secondary flex-1 ${
+                    (s1.scope || {}).type === opt ? "bg-[#0A0A0A] text-white" : ""
+                  }`}
+                  onClick={() =>
+                    setRfp((p) => ({
+                      ...p,
+                      section1: {
+                        ...p.section1,
+                        scope: { ...(p.section1.scope || {}), type: opt },
+                      },
+                    }))
+                  }
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+            <div className="font-mono-tight text-xs text-[#666] mt-2">
+              TAL = Target Account List provided by the client · Whitespace = discover new accounts
+            </div>
+          </Field>
+
+          {(s1.scope || {}).type === "TAL" && (
+            <div className="md:col-span-2">
+              <label className="font-label block mb-2">TAL Match Details</label>
+              <table className="evcl-table" data-testid="tal-details-table">
+                <thead>
+                  <tr>
+                    <th>Total TAL Count</th>
+                    <th>With Valid Domains</th>
+                    <th>TAL Match Count</th>
+                    <th className="num">Match %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>
+                      <input
+                        type="number" min="0"
+                        data-testid="input-tal-total"
+                        className="evcl-input"
+                        value={(s1.scope?.tal || {}).total_count || 0}
+                        onChange={(e) =>
+                          setRfp((p) => ({
+                            ...p,
+                            section1: {
+                              ...p.section1,
+                              scope: {
+                                ...(p.section1.scope || {}),
+                                tal: {
+                                  ...((p.section1.scope || {}).tal || {}),
+                                  total_count: Number(e.target.value) || 0,
+                                },
+                              },
+                            },
+                          }))
+                        }
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number" min="0"
+                        data-testid="input-tal-valid"
+                        className="evcl-input"
+                        value={(s1.scope?.tal || {}).valid_domain_count || 0}
+                        onChange={(e) =>
+                          setRfp((p) => ({
+                            ...p,
+                            section1: {
+                              ...p.section1,
+                              scope: {
+                                ...(p.section1.scope || {}),
+                                tal: {
+                                  ...((p.section1.scope || {}).tal || {}),
+                                  valid_domain_count: Number(e.target.value) || 0,
+                                },
+                              },
+                            },
+                          }))
+                        }
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number" min="0"
+                        data-testid="input-tal-match"
+                        className="evcl-input"
+                        value={(s1.scope?.tal || {}).match_count || 0}
+                        onChange={(e) =>
+                          setRfp((p) => ({
+                            ...p,
+                            section1: {
+                              ...p.section1,
+                              scope: {
+                                ...(p.section1.scope || {}),
+                                tal: {
+                                  ...((p.section1.scope || {}).tal || {}),
+                                  match_count: Number(e.target.value) || 0,
+                                },
+                              },
+                            },
+                          }))
+                        }
+                      />
+                    </td>
+                    <td className="num font-mono-tight text-lg font-semibold" data-testid="cell-tal-match-pct">
+                      {(() => {
+                        const t = (s1.scope || {}).tal || {};
+                        const total = Number(t.total_count || 0);
+                        const matched = Number(t.match_count || 0);
+                        return total > 0 ? `${((matched / total) * 100).toFixed(2)}%` : "—";
+                      })()}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div className="font-mono-tight text-xs text-[#666] mt-2">
+                Match % = Match Count ÷ Total TAL Count · auto-calculated
+              </div>
+            </div>
+          )}
+        </div>
+      </Section>
+
       {/* ============== SECTION 1: RFP DISCOVERY ============== */}
       <Section title="Section 01 — RFP Discovery">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-5">
@@ -395,11 +529,11 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
               onChange={(e) => updateCampType("num_touches", Number(e.target.value) || 0)}
             />
           </Field>
-          <Field label="With TV (Tele-Verification) · 10% reduction">
+          <Field label="With TV (Tele-Verification) · MQL only · −10%">
             <div className="flex gap-2 mt-1">
               {[
                 { key: false, label: "Off" },
-                { key: true, label: "On · reduce 10%" },
+                { key: true, label: "On · reduce MQL 10%" },
               ].map((opt) => (
                 <button
                   type="button"
@@ -421,12 +555,12 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
       </Section>
 
       {/* ============== SECTION 2: DATA UNIVERSE ============== */}
-      <Section title="Section 02 — Data Universe Estimation">
+      <Section title="Section 02 — Data Universe (manual input)">
         <div data-testid="data-universe-block" className="bg-[#0A0A0A] text-white px-8 py-8 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
           <div className="max-w-md">
-            <div className="font-label text-white/60">Estimated Data Universe · editable</div>
+            <div className="font-label text-white/60">Data Universe</div>
             <div className="font-serif-display italic text-white/70 text-base mt-3">
-              Auto-suggested from Target Geography × Industries × Revenue & Employee bands × Contacts per Company. Override with the number pulled from your data source.
+              Enter the total addressable data universe manually — this is the number the Section 3 lead formulas apply source-conversion % against.
             </div>
           </div>
           <div className="flex items-end gap-3">
@@ -441,16 +575,6 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
               }))}
               placeholder="0"
             />
-            <button
-              type="button"
-              data-testid="data-universe-reset"
-              className="btn-secondary"
-              style={{borderColor:"#fff",color:"#fff"}}
-              onClick={() => setRfp((p) => ({ ...p, section2: { ...p.section2, data_universe: 0 } }))}
-              title="Clear to trigger auto-suggest from filters"
-            >
-              [ Auto ]
-            </button>
           </div>
         </div>
       </Section>
@@ -483,7 +607,7 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
               <div>CPC (Contacts/Co) = {s1.contacts_per_company || 0} · ÷{(ref.cpc_divisors || {})[s1.contacts_per_company] || 1}</div>
               <div>CQ = {s1.campaign_type_config.num_cq || 0} · −{(((ref.cq_reductions || {})[s1.campaign_type_config.num_cq] || 0) * 100)}%</div>
               <div>QQ = {s1.campaign_type_config.num_qq || 0} · −{(((ref.qq_reductions || {})[s1.campaign_type_config.num_qq] || 0) * 100)}%</div>
-              <div>TV = {s1.campaign_type_config.with_tv ? "ON · −10%" : "OFF"}</div>
+              <div>TV = {s1.campaign_type_config.with_tv ? "ON · MQL −10%" : "OFF"}</div>
             </div>
           </Field>
         </div>
