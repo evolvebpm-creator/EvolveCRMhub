@@ -90,7 +90,16 @@ export default function Proposal({ rfp, reference, onBack }) {
           <button
             data-testid="proposal-print-button"
             className="btn-primary"
-            onClick={() => window.print()}
+            onClick={() => {
+              const originalTitle = document.title;
+              const client = (rfp?.section1?.end_client_name || rfp?.section1?.campaign_name || "RFP Response").replace(/[^\w\s.-]/g, "");
+              const ref = rfp?.section1?.rfp_master_tracking_sheet || "";
+              document.title = `EvolveBPM · ${client}${ref ? " · " + ref : ""} · Proposal`;
+              setTimeout(() => {
+                window.print();
+                setTimeout(() => { document.title = originalTitle; }, 100);
+              }, 50);
+            }}
           >
             <Printer size={14} strokeWidth={1.5} className="inline mr-1" /> [ Print / Save PDF ]
           </button>
@@ -239,14 +248,30 @@ export default function Proposal({ rfp, reference, onBack }) {
 
       {/* Print CSS */}
       <style>{`
+        @page {
+          size: A4;
+          margin: 14mm 10mm;
+        }
         @media print {
           .no-print, header, footer, [data-testid="tab-nav"] { display: none !important; }
           body { background: #fff !important; }
           .panel { border: 1px solid #000; break-inside: avoid; }
           .variant-editor { display: none !important; }
           section, .print-cover { break-inside: avoid; }
+          /* Ensure the branded footer prints as the trailing content */
+          .print-brand-footer { display: block !important; }
         }
+        .print-brand-footer { display: none; }
       `}</style>
+
+      {/* Branded print footer (only visible in print) */}
+      <div className="print-brand-footer" style={{marginTop: "24px", paddingTop: "12px", borderTop: "1px solid #DCDCCF", fontFamily: "IBM Plex Mono, monospace", fontSize: "10px", color: "#666", display: "flex", justifyContent: "space-between", alignItems: "center"}}>
+        <div style={{display: "flex", alignItems: "center", gap: "8px"}}>
+          <img src="/evolvebpm-logo.png" alt="EvolveBPM" style={{height: "20px", width: "auto"}} />
+          <span>EvolveBPM · Decoding the sales ecosystem</span>
+        </div>
+        <div>Confidential · For addressee only</div>
+      </div>
     </div>
   );
 }
