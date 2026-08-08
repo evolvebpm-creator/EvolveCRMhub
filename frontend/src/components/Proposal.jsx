@@ -1,8 +1,17 @@
 import React from "react";
+import html2canvas from "html2canvas";
 import MultiSelect from "./MultiSelect";
 import { previewCompute } from "../lib/apiClient";
 import { LEAD_TYPES, fmtNum, fmtCurrency, useDebounce } from "../lib/rfpUtils";
-import { Printer, ChevronDown, ChevronUp } from "lucide-react";
+import { Printer, ChevronDown, ChevronUp, Camera } from "lucide-react";
+
+// Preset client logos shipped with the app.
+const PRESET_CLIENT_LOGOS = [
+  { name: "Encore Media Group", src: "/client-logos/encore.png" },
+  { name: "LeadScale", src: "/client-logos/leadscale.png" },
+  { name: "B2B Media Group", src: "/client-logos/b2bmg.jpeg" },
+  { name: "BR", src: "/client-logos/br.jpeg" },
+];
 
 const cloneVariant = (rfp) => JSON.parse(JSON.stringify(rfp));
 
@@ -73,6 +82,8 @@ const setDeep = (obj, path, value) => {
 
 export default function Proposal({ rfp, reference, onBack }) {
   const [clientLogo, setClientLogo] = React.useState(rfp?.section1?.client_logo || "");
+  const [capturing, setCapturing] = React.useState(false);
+  const proposalRef = React.useRef(null);
 
   const handleLogoUpload = (e) => {
     const file = e.target.files && e.target.files[0];
@@ -84,6 +95,80 @@ export default function Proposal({ rfp, reference, onBack }) {
     const reader = new FileReader();
     reader.onload = () => setClientLogo(String(reader.result || ""));
     reader.readAsDataURL(file);
+  };
+
+  const snapshotFilename = () => {
+    const client = (rfp?.section1?.end_client_name || rfp?.section1?.campaign_name || "Proposal")
+      .replace(/[^\w\s.-]/g, "").replace(/\s+/g, "_");
+    const ref = rfp?.section1?.rfp_master_tracking_sheet || "";
+    return `EvolveBPM_${client}${ref ? "_" + ref : ""}_Proposal.png`;
+  };
+
+  const captureSnapshot = async (mode = "download") => {
+    if (!proposalRef.current) return;
+    setCapturing(true);
+    try {
+      // Temporarily hide screen-only chrome so the snapshot mirrors the print output.
+      const root = proposalRef.current;
+      const hidden = root.querySelectorAll(".no-print, .variant-editor");
+      hidden.forEach((n) => n.setAttribute("data-snap-hidden", "1"));
+      hidden.forEach((n) => (n.style.display = "none"));
+      // Reveal the branded print footer during capture.
+      const brandFooter = root.querySelector(".print-brand-footer");
+      const prevBrandDisplay = brandFooter ? brandFooter.style.display : null;
+      if (brandFooter) brandFooter.style.display = "block";
+
+      // Wait for layout to settle after DOM changes.
+      await new Promise((r) => setTimeout(r, 60));
+
+      const canvas = await html2canvas(root, {
+        backgroundColor: "#ffffff",
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        windowWidth: root.scrollWidth,
+      });
+
+      // Restore chrome.
+      hidden.forEach((n) => { n.style.display = ""; n.removeAttribute("data-snap-hidden"); });
+      if (brandFooter) brandFooter.style.display = prevBrandDisplay || "";
+
+      const dataUrl = canvas.toDataURL("image/png");
+      if (mode === "download") {
+        const a = document.createElement("a");
+        a.href = dataUrl;
+        a.download = snapshotFilename();
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } else if (mode === "copy") {
+        try {
+          const blob = await (await fetch(dataUrl)).blob();
+          await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+          alert("Snapshot copied to clipboard — paste it into email or chat.");
+        } catch (err) {
+          alert("Copy to clipboard not supported here. The image download will start instead.");
+          const a = document.createElement("a");
+          a.href = dataUrl; a.download = snapshotFilename();
+          document.body.appendChild(a); a.click(); a.remove();
+        }
+      } else if (mode === "preview") {
+        const w = window.open("", "_blank");
+        if (w) {
+          w.document.write(
+            `<title>${snapshotFilename()}</title>
+             <body style="margin:0;background:#111;display:flex;justify-content:center;">
+               <img src="${dataUrl}" style="max-width:100%;height:auto;"/>
+             </body>`
+          );
+        }
+      }
+    } catch (e) {
+      console.error("Snapshot failed", e);
+      alert("Could not capture snapshot — please try again.");
+    } finally {
+      setCapturing(false);
+    }
   };
   const [variantA, setVariantA] = React.useState(() => {
     const v = cloneVariant(rfp);
@@ -126,7 +211,7 @@ export default function Proposal({ rfp, reference, onBack }) {
   const ref = reference || {};
 
   return (
-    <div data-testid="proposal-view" className="space-y-8">
+    <div data-testid="proposal-view" className="space-y-8" ref={proposalRef}>
       {/* Screen-only toolbar */}
       <div className="flex flex-wrap items-end justify-between gap-4 pb-6 border-b-2 border-[#0A0A0A] no-print">
         <div>
@@ -136,9 +221,28 @@ export default function Proposal({ rfp, reference, onBack }) {
             Two variations · edit demographics on the right of each option to reshape lead volumes.
           </div>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <button data-testid="proposal-back-button" className="btn-secondary" onClick={onBack}>
             ← Back to list
+          </button>
+          <button
+            data-testid="proposal-snapshot-download"
+            className="btn-secondary"
+            disabled={capturing}
+            onClick={() => captureSnapshot("download")}
+            title="Download proposal as a PNG image"
+          >
+            <Camera size={14} strokeWidth={1.5} className="inline mr-1" />
+            {capturing ? "[ Capturing… ]" : "[ Save PNG Snapshot ]"}
+          </button>
+          <button
+            data-testid="proposal-snapshot-copy"
+            className="btn-secondary"
+            disabled={capturing}
+            onClick={() => captureSnapshot("copy")}
+            title="Copy snapshot to clipboard — paste into email / chat"
+          >
+            [ Copy to Clipboard ]
           </button>
           <button
             data-testid="proposal-print-button"
@@ -176,35 +280,69 @@ export default function Proposal({ rfp, reference, onBack }) {
                 src={clientLogo}
                 alt="Client logo"
                 data-testid="proposal-client-logo"
+                crossOrigin="anonymous"
                 className="max-h-16 md:max-h-20 w-auto mt-2"
               />
-              <button
-                type="button"
-                data-testid="proposal-client-logo-remove"
-                className="font-mono-tight text-xs text-[#D92D20] mt-2 no-print"
-                onClick={() => setClientLogo("")}
-              >
-                remove
-              </button>
+              <div className="flex items-center gap-2 mt-2 no-print">
+                <button
+                  type="button"
+                  data-testid="proposal-client-logo-change"
+                  className="font-mono-tight text-xs text-[#0A0A0A] underline"
+                  onClick={() => setClientLogo("")}
+                >
+                  change
+                </button>
+                <span className="text-[#666]">·</span>
+                <button
+                  type="button"
+                  data-testid="proposal-client-logo-remove"
+                  className="font-mono-tight text-xs text-[#D92D20]"
+                  onClick={() => setClientLogo("")}
+                >
+                  remove
+                </button>
+              </div>
             </div>
           ) : (
             <div className="text-right">
               <div className="font-label">Prepared By</div>
               <div className="font-serif-display text-lg mt-1">EvolveBPM</div>
               <div className="font-mono-tight text-xs text-[#666] italic">Decoding the sales ecosystem</div>
-              <label
-                data-testid="proposal-client-logo-upload"
-                className="btn-secondary inline-block mt-3 cursor-pointer no-print"
-                style={{ padding: "0.4rem 0.75rem", fontSize: "0.65rem" }}
-              >
-                [ + Add Client Logo ]
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/svg+xml,image/webp"
-                  onChange={handleLogoUpload}
-                  className="hidden"
-                />
-              </label>
+              <div className="mt-3 no-print" data-testid="proposal-preset-logos">
+                <div className="font-label mb-1.5">Client Logo Presets</div>
+                <div className="flex flex-wrap gap-2 justify-end">
+                  {PRESET_CLIENT_LOGOS.map((l) => (
+                    <button
+                      key={l.src}
+                      type="button"
+                      data-testid={`preset-logo-${l.name.replace(/\s+/g, "-").toLowerCase()}`}
+                      onClick={() => setClientLogo(l.src)}
+                      title={`Use ${l.name} logo`}
+                      className="border border-[#DCDCCF] hover:border-[#0A0A0A] bg-white p-1 transition-colors"
+                      style={{ width: "56px", height: "40px", display: "flex", alignItems: "center", justifyContent: "center" }}
+                    >
+                      <img
+                        src={l.src}
+                        alt={l.name}
+                        style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
+                      />
+                    </button>
+                  ))}
+                </div>
+                <label
+                  data-testid="proposal-client-logo-upload"
+                  className="btn-secondary inline-block mt-3 cursor-pointer"
+                  style={{ padding: "0.4rem 0.75rem", fontSize: "0.65rem" }}
+                >
+                  [ + Upload Custom Logo ]
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                    onChange={handleLogoUpload}
+                    className="hidden"
+                  />
+                </label>
+              </div>
             </div>
           )}
         </div>
