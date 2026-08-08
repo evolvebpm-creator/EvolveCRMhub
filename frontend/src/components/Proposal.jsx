@@ -6,6 +6,59 @@ import { Printer, ChevronDown, ChevronUp } from "lucide-react";
 
 const cloneVariant = (rfp) => JSON.parse(JSON.stringify(rfp));
 
+// CPC divisor table (mirrors backend server.py CPC_DIVISORS)
+const CPC_DIVISORS = { 1: 5.0, 2: 3.0, 3: 2.0, 4: 1.5, 5: 1.25 };
+const CQ_REDUCTIONS = { 1: 15, 2: 25, 3: 35, 4: 45, 5: 50 };
+const QQ_REDUCTIONS = { 1: 25, 2: 35, 3: 45, 4: 50, 5: 60 };
+const TV_REDUCTION_PCT = 10;
+
+// Compare demographic + modifier deltas between the current variant and Option A.
+const diffFromBaseline = (base, curr) => {
+  const changes = [];
+  const bs1 = (base.section1) || {};
+  const cs1 = (curr.section1) || {};
+  const bcfg = bs1.campaign_type_config || {};
+  const ccfg = cs1.campaign_type_config || {};
+
+  const listDiff = (label, a = [], b = []) => {
+    const A = new Set(a || []);
+    const B = new Set(b || []);
+    const added = [...B].filter((x) => !A.has(x));
+    const removed = [...A].filter((x) => !B.has(x));
+    if (added.length || removed.length) changes.push({ label, added, removed, kind: "list" });
+  };
+  const scalarDiff = (label, a, b, fmt = (x) => String(x ?? "—")) => {
+    if ((a ?? "") !== (b ?? "")) changes.push({ label, from: fmt(a), to: fmt(b), kind: "scalar" });
+  };
+
+  listDiff("Geography", bs1.target_geography, cs1.target_geography);
+  listDiff("Industries", bs1.target_industries, cs1.target_industries);
+  listDiff("Revenue Bands", bs1.revenue_size, cs1.revenue_size);
+  listDiff("Employee Sizes", bs1.employee_size, cs1.employee_size);
+  listDiff("Job Functions", bs1.target_job_functions, cs1.target_job_functions);
+  listDiff("Job Seniority", bs1.target_job_seniority, cs1.target_job_seniority);
+  listDiff("Job Titles", bs1.target_job_titles, cs1.target_job_titles);
+  listDiff("Campaign Types", bcfg.types, ccfg.types);
+
+  scalarDiff("Contacts / Company (CPC)", bs1.contacts_per_company, cs1.contacts_per_company);
+  scalarDiff("Number of CQ", bcfg.num_cq, ccfg.num_cq);
+  scalarDiff("Number of QQ", bcfg.num_qq, ccfg.num_qq);
+  scalarDiff(
+    "Tele-Verification (TV)",
+    bcfg.with_tv, ccfg.with_tv,
+    (x) => (x ? "On (−10% MQL)" : "Off")
+  );
+  scalarDiff("Data Source", (base.section3 || {}).data_source, (curr.section3 || {}).data_source);
+  scalarDiff(
+    "Data Universe",
+    (base.section2 || {}).data_universe,
+    (curr.section2 || {}).data_universe,
+    (x) => new Intl.NumberFormat("en-US").format(Number(x || 0))
+  );
+
+  return changes;
+};
+
 const setDeep = (obj, path, value) => {
   const keys = path.split(".");
   const next = { ...obj };
@@ -203,6 +256,7 @@ export default function Proposal({ rfp, reference, onBack }) {
           computed={computedA}
           reference={ref}
           accent="black"
+          isBaseline
         />
         <VariantCard
           testId="variant-b"
@@ -211,6 +265,7 @@ export default function Proposal({ rfp, reference, onBack }) {
           computed={computedB}
           reference={ref}
           accent="red"
+          baseline={variantA}
         />
         <VariantCard
           testId="variant-c"
@@ -219,6 +274,7 @@ export default function Proposal({ rfp, reference, onBack }) {
           computed={computedC}
           reference={ref}
           accent="green"
+          baseline={variantA}
         />
       </div>
 
@@ -279,13 +335,20 @@ export default function Proposal({ rfp, reference, onBack }) {
 // ------------------------------------------------------------------ //
 // Variant card: client-facing headline + editable demographic panel   //
 // ------------------------------------------------------------------ //
-function VariantCard({ testId, variant, setVariant, computed, reference, accent }) {
+function VariantCard({ testId, variant, setVariant, computed, reference, accent, baseline, isBaseline }) {
   const [showEditor, setShowEditor] = React.useState(false);
   const s1 = variant.section1 || {};
   const cfg = s1.campaign_type_config || {};
   const s3 = computed.section3 || {};
   const s2 = computed.section2 || {};
   const activeRows = (s3.rows || []).filter((r) => r.lead_counts > 0);
+
+  const cpcVal = Number(s1.contacts_per_company || 0);
+  const cpcDivisor = CPC_DIVISORS[cpcVal];
+  const cqPct = CQ_REDUCTIONS[Number(cfg.num_cq || 0)] || 0;
+  const qqPct = QQ_REDUCTIONS[Number(cfg.num_qq || 0)] || 0;
+
+  const changes = !isBaseline && baseline ? diffFromBaseline(baseline, variant) : [];
 
   const accentBar =
     accent === "red" ? "bg-[#D92D20]" : accent === "green" ? "bg-[#039855]" : "bg-[#0A0A0A]";
@@ -347,6 +410,93 @@ function VariantCard({ testId, variant, setVariant, computed, reference, accent 
             {listPreview(cfg.types)}
           </SnapChip>
         </div>
+
+        {/* Modifiers strip — CPC, CQ, QQ, TV (client-visible & prints) */}
+        <div data-testid={`${testId}-modifiers`} className="border border-[#DCDCCF] bg-[#FAFAF5] px-4 py-3 grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div>
+            <div className="font-label">CPC Limit</div>
+            <div className="font-mono-tight text-sm mt-1" data-testid={`${testId}-mod-cpc`}>
+              {cpcVal > 0 ? (
+                <>
+                  {cpcVal} <span className="text-[#666]">contact{cpcVal > 1 ? "s" : ""} / company</span>
+                  {cpcDivisor && (
+                    <div className="text-[#666] text-xs">÷ {cpcDivisor} divisor</div>
+                  )}
+                </>
+              ) : "—"}
+            </div>
+          </div>
+          <div>
+            <div className="font-label">Custom Questions</div>
+            <div className="font-mono-tight text-sm mt-1" data-testid={`${testId}-mod-cq`}>
+              {cfg.num_cq > 0 ? (
+                <>
+                  {cfg.num_cq} CQ
+                  <div className="text-[#666] text-xs">−{cqPct}% on MQL</div>
+                </>
+              ) : "—"}
+            </div>
+          </div>
+          <div>
+            <div className="font-label">Qualifying Questions</div>
+            <div className="font-mono-tight text-sm mt-1" data-testid={`${testId}-mod-qq`}>
+              {cfg.num_qq > 0 ? (
+                <>
+                  {cfg.num_qq} QQ
+                  <div className="text-[#666] text-xs">−{qqPct}% on MQL</div>
+                </>
+              ) : "—"}
+            </div>
+          </div>
+          <div>
+            <div className="font-label">Tele-Verification</div>
+            <div className="font-mono-tight text-sm mt-1" data-testid={`${testId}-mod-tv`}>
+              {cfg.with_tv ? (
+                <>
+                  On
+                  <div className="text-[#666] text-xs">−{TV_REDUCTION_PCT}% on MQL</div>
+                </>
+              ) : "Off"}
+            </div>
+          </div>
+        </div>
+
+        {/* Changes vs Option A — only rendered on Options B & C */}
+        {!isBaseline && (
+          <div data-testid={`${testId}-changes`} className="border-l-4 border-[#0A0A0A] bg-white px-4 py-3">
+            <div className="font-label">Changes vs Option A</div>
+            {changes.length === 0 ? (
+              <div className="font-mono-tight text-xs text-[#666] mt-2">
+                No demographic or modifier changes — identical scope to Option A.
+              </div>
+            ) : (
+              <ul className="mt-2 space-y-1.5 font-mono-tight text-xs">
+                {changes.map((c, i) => (
+                  <li key={i} data-testid={`${testId}-change-${i}`} className="leading-snug">
+                    <span className="uppercase text-[#0A0A0A] font-semibold">{c.label}:</span>{" "}
+                    {c.kind === "scalar" ? (
+                      <span>
+                        <span className="text-[#D92D20]">{c.from}</span>
+                        <span className="text-[#666]"> → </span>
+                        <span className="text-[#039855]">{c.to}</span>
+                      </span>
+                    ) : (
+                      <span>
+                        {c.added.length > 0 && (
+                          <span className="text-[#039855]">+ {c.added.join(", ")}</span>
+                        )}
+                        {c.added.length > 0 && c.removed.length > 0 && <span> · </span>}
+                        {c.removed.length > 0 && (
+                          <span className="text-[#D92D20]">− {c.removed.join(", ")}</span>
+                        )}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
         {/* Deliverables table (client-facing) */}
         <div>
