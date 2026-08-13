@@ -59,6 +59,13 @@ REVENUE_BAND_WEIGHT = {
 
 # Data sources available for Section 3 lead computation.
 DATA_SOURCES = ["VibeProspect", "Prospeo", "Apollo", "Others"]
+# 3-letter display codes for UI (DB stores the full internal key above).
+SOURCE_CODES: Dict[str, str] = {
+    "VibeProspect": "VBP",
+    "Prospeo": "PRO",
+    "Apollo": "APO",
+    "Others": "OTH",
+}
 
 # Per-source conversion rates (% of Data Universe → leads of each type).
 # Webinar/Live-event rates are source-independent (spec supplies fixed rates).
@@ -616,6 +623,8 @@ async def get_reference():
         ],
         "lead_types": LEAD_TYPES,
         "data_sources": DATA_SOURCES,
+        "data_sources_labeled": [{"value": s, "code": SOURCE_CODES.get(s, s)} for s in DATA_SOURCES],
+        "source_codes": SOURCE_CODES,
         "conversion_rates": CONVERSION_RATES,
         "cpc_divisors": CPC_DIVISORS,
         "cq_reductions": CQ_REDUCTIONS,

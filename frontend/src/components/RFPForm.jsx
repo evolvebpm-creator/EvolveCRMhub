@@ -75,6 +75,8 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
             grand_total_leads: res.section3.grand_total_leads,
             grand_total_cost: res.section3.grand_total_cost,
             blended_cpl: res.section3.blended_cpl,
+            by_country: res.section3.by_country || null,
+            cost_by_country: res.section3.cost_by_country || null,
           },
         }));
       } catch (e) {
@@ -455,20 +457,20 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
               placeholder="Select seniority levels…"
             />
           </Field>
-          <Field label="Target Job Titles · paste one per line" span={2}>
+          <Field label="Target Job Titles · comma-separated" span={2}>
             <textarea
               data-testid="input-job-titles"
               className="evcl-input"
               rows={4}
-              value={(s1.target_job_titles || []).join("\n")}
+              value={(s1.target_job_titles || []).join(", ")}
               onChange={(e) => {
                 const list = e.target.value
-                  .split(/\r?\n/)
+                  .split(/[,\n]+/)
                   .map((l) => l.trim())
                   .filter(Boolean);
                 updateS1("target_job_titles", list);
               }}
-              placeholder={"Paste one title per line — e.g.\nCTO\nVP Engineering\nHead of Product"}
+              placeholder={"Comma-separated — e.g. CTO, VP Engineering, Head of Product"}
             />
             <div className="font-mono-tight text-xs text-[#666] mt-1">
               {(s1.target_job_titles || []).length} title(s) captured
@@ -668,7 +670,9 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
             >
               <option value="">— Select Source —</option>
               {(ref.data_sources || []).map((src) => (
-                <option key={src} value={src}>{src}</option>
+                <option key={src} value={src}>
+                  {(ref.source_codes || {})[src] || src}
+                </option>
               ))}
             </select>
           </Field>
@@ -747,6 +751,102 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
         <div className="font-mono-tight text-xs text-[#666] mt-3 leading-relaxed">
           Formula per active row: <code>base = Data Universe × source%</code> → <code>÷ CPC divisor</code> → <code>× (1 − CQ%)</code> → <code>× (1 − QQ%)</code> → <code>× 0.9 if TV</code>. Total = CPL × Lead Counts.
         </div>
+
+        {/* Country-wise lead & cost breakdown (live) */}
+        {(() => {
+          const bc = s3.by_country;
+          const cbc = s3.cost_by_country || {};
+          const cplbc = s3.cpl_by_country || {};
+          const activeLTs = (s3.rows || []).filter((r) => (r.lead_counts || 0) > 0);
+          if (!bc || Object.keys(bc).length <= 1 || activeLTs.length === 0) return null;
+          return (
+            <div data-testid="section3-by-country" className="mt-8 pt-6 border-t border-[#DCDCCF]">
+              <div className="font-label mb-2">Lead Allocation by Geography · Live</div>
+              <div className="font-mono-tight text-xs text-[#666] mb-4">
+                Per-country universe → per-country leads at the active CPL. Overrides (from the grid below) reflect here instantly.
+              </div>
+              <div className="overflow-x-auto">
+                <table className="evcl-table">
+                  <thead>
+                    <tr>
+                      <th rowSpan={2} style={{ verticalAlign: "bottom" }}>Geography</th>
+                      {activeLTs.map((r) => (
+                        <th key={r.lead_type} colSpan={3} className="num uppercase" style={{ borderLeft: "1px solid #DCDCCF" }}>
+                          {r.lead_type}
+                        </th>
+                      ))}
+                      <th rowSpan={2} className="num" style={{ verticalAlign: "bottom", borderLeft: "1px solid #DCDCCF" }}>
+                        Row Cost
+                      </th>
+                    </tr>
+                    <tr>
+                      {activeLTs.map((r) => (
+                        <React.Fragment key={r.lead_type}>
+                          <th className="num" style={{ borderLeft: "1px solid #DCDCCF", fontSize: "0.65rem" }}>Leads</th>
+                          <th className="num" style={{ fontSize: "0.65rem" }}>CPL</th>
+                          <th className="num" style={{ fontSize: "0.65rem" }}>Cost</th>
+                        </React.Fragment>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(bc).map(([country, leadMap]) => {
+                      const cplMap = cplbc[country] || {};
+                      const costMap = cbc[country] || {};
+                      const rowCost = activeLTs.reduce(
+                        (acc, r) => acc + Number(costMap[r.lead_type] || 0), 0
+                      );
+                      return (
+                        <tr key={country} data-testid={`section3-geo-${country.replace(/\s+/g, "-").toLowerCase()}`}>
+                          <td className="font-mono-tight">{country}</td>
+                          {activeLTs.map((r) => {
+                            const cplUsed = cplMap[r.lead_type] ?? r.cpl;
+                            const overridden = cplMap[r.lead_type] !== undefined && cplMap[r.lead_type] !== null;
+                            return (
+                              <React.Fragment key={r.lead_type}>
+                                <td className="num" style={{ borderLeft: "1px solid #DCDCCF" }}>
+                                  {fmtNum(leadMap[r.lead_type] || 0)}
+                                </td>
+                                <td className="num" title={overridden ? "Per-country override" : "Row default"}>
+                                  {fmtCurrency(cplUsed)}
+                                  {overridden && (
+                                    <span className="font-mono-tight text-[9px] text-[#039855] ml-1">•</span>
+                                  )}
+                                </td>
+                                <td className="num">{fmtCurrency(costMap[r.lead_type] || 0)}</td>
+                              </React.Fragment>
+                            );
+                          })}
+                          <td className="num font-semibold" style={{ borderLeft: "1px solid #DCDCCF" }}>
+                            {fmtCurrency(rowCost)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    <tr className="border-t-2 border-[#0A0A0A] font-semibold">
+                      <td className="font-label">Total</td>
+                      {activeLTs.map((r) => (
+                        <React.Fragment key={r.lead_type}>
+                          <td className="num" style={{ borderLeft: "1px solid #DCDCCF" }}>{fmtNum(r.lead_counts)}</td>
+                          <td className="num">—</td>
+                          <td className="num">{fmtCurrency(r.total_cost)}</td>
+                        </React.Fragment>
+                      ))}
+                      <td className="num" style={{ borderLeft: "1px solid #DCDCCF" }}>
+                        {fmtCurrency(s3.grand_total_cost)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              {Object.keys(cplbc).length > 0 && (
+                <div className="font-mono-tight text-[10px] text-[#666] mt-2">
+                  <span className="text-[#039855]">•</span> = country-specific CPL override applied
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Per-country CPL override — only when multi-geo AND ≥1 active lead type */}
         {(() => {

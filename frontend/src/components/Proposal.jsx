@@ -600,7 +600,7 @@ function VariantCard({ testId, variant, setVariant, computed, reference, accent,
             </span>
           </SnapChip>
           <SnapChip label="Data Source">
-            <span className="font-mono-tight text-base">{(variant.section3 || {}).data_source || "—"}</span>
+            <span className="font-mono-tight text-base">{(reference.source_codes || {})[(variant.section3 || {}).data_source] || (variant.section3 || {}).data_source || "—"}</span>
           </SnapChip>
           <SnapChip label="Geography">{listPreview(s1.target_geography)}</SnapChip>
           <SnapChip label="Industries">{listPreview(s1.target_industries)}</SnapChip>
@@ -939,15 +939,15 @@ function VariantEditor({ testId, variant, reference, update }) {
         </FieldSmall>
       </div>
 
-      <FieldSmall label="Job Titles · paste one per line">
+      <FieldSmall label="Job Titles · comma-separated">
         <textarea
           data-testid={`${testId}-titles`}
           className="evcl-input"
           rows={3}
-          value={(s1.target_job_titles || []).join("\n")}
+          value={(s1.target_job_titles || []).join(", ")}
           onChange={(e) => {
             const list = e.target.value
-              .split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+              .split(/[,\n]+/).map((l) => l.trim()).filter(Boolean);
             update("section1.target_job_titles", list);
           }}
         />
@@ -1013,7 +1013,9 @@ function VariantEditor({ testId, variant, reference, update }) {
           >
             <option value="">— Select Source —</option>
             {(ref.data_sources || []).map((src) => (
-              <option key={src} value={src}>{src}</option>
+              <option key={src} value={src}>
+                {(ref.source_codes || {})[src] || src}
+              </option>
             ))}
           </select>
         </FieldSmall>
