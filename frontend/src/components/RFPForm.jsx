@@ -77,6 +77,7 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
             blended_cpl: res.section3.blended_cpl,
             by_country: res.section3.by_country || null,
             cost_by_country: res.section3.cost_by_country || null,
+            missing_country_rates: res.section3.missing_country_rates || null,
           },
         }));
       } catch (e) {
@@ -749,8 +750,22 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
           </table>
         </div>
         <div className="font-mono-tight text-xs text-[#666] mt-3 leading-relaxed">
-          Formula per active row: <code>base = Data Universe × source%</code> → <code>÷ CPC divisor</code> → <code>× (1 − CQ%)</code> → <code>× (1 − QQ%)</code> → <code>× 0.9 if TV</code>. Total = CPL × Lead Counts.
+          Formula per active row: <code>base = Data Universe × source%</code> → <code>× country attainability%</code> → <code>÷ CPC divisor</code> → <code>× (1 − CQ%)</code> → <code>× (1 − QQ%)</code> → <code>× 0.9 if TV</code>. Total = CPL × Lead Counts.
         </div>
+
+        {/* Missing country attainability warning */}
+        {Array.isArray(s3.missing_country_rates) && s3.missing_country_rates.length > 0 && (
+          <div
+            data-testid="section3-missing-country-warning"
+            className="mt-4 border-l-4 border-[#D92D20] bg-[#FEF3F2] px-4 py-3"
+          >
+            <div className="font-label text-[#D92D20]">Missing Country Attainability</div>
+            <div className="font-mono-tight text-xs text-[#0A0A0A] mt-1">
+              These selected geographies are NOT in the Admin conversion table and will compute at 100%:{" "}
+              <strong>{s3.missing_country_rates.join(", ")}</strong>. Please add them under Admin → Country Attainability for accurate lead volumes.
+            </div>
+          </div>
+        )}
 
         {/* Country-wise lead & cost breakdown (live) */}
         {(() => {

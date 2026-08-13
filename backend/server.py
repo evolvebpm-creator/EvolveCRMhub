@@ -111,12 +111,39 @@ QQ_REDUCTIONS: Dict[int, float] = {1: 0.25, 2: 0.35, 3: 0.45, 4: 0.50, 5: 0.60}
 # With TV (Tele Verification) → 10% reduction.
 TV_REDUCTION: float = 0.10
 
+# Country attainability multiplier (stored as %, e.g. 85 == 85%). Applied to leads
+# per country: leads = universe × source% × country% / 10000 / cpc_divisor × modifiers.
+COUNTRY_RATES: Dict[str, float] = {
+    "United States": 85,
+    "Canada": 85,
+    "ANZ": 75,
+    "Europe - all countries as per linkedin": 60,
+    "Germany": 50,
+    "UK": 75,
+    "APAC": 65,
+    "India": 85,
+    "Middle East": 50,
+    "LATAM": 50,
+    # Extras from the geography multi-select — sensible defaults so
+    # existing RFPs don't break; admin can tune.
+    "United Kingdom": 75, "France": 60, "Italy": 60, "Spain": 60,
+    "Netherlands": 60, "Sweden": 60, "Switzerland": 60,
+    "Australia": 75, "New Zealand": 75, "Singapore": 65,
+    "Japan": 65, "China": 65,
+    "Mexico": 50, "Brazil": 50, "Argentina": 50,
+    "UAE": 50, "Saudi Arabia": 50, "Israel": 50,
+    "South Africa": 50, "Nigeria": 50, "Kenya": 50, "Egypt": 50,
+    "North America": 85, "South America": 50, "Europe": 60,
+    "Asia Pacific": 65, "Africa": 50, "Oceania": 75,
+}
+
 # Snapshot of the ORIGINAL hardcoded defaults so the admin panel can reset.
 _DEFAULT_CONVERSION_RATES = {k: dict(v) for k, v in CONVERSION_RATES.items()}
 _DEFAULT_CPC_DIVISORS = dict(CPC_DIVISORS)
 _DEFAULT_CQ_REDUCTIONS = dict(CQ_REDUCTIONS)
 _DEFAULT_QQ_REDUCTIONS = dict(QQ_REDUCTIONS)
 _DEFAULT_TV_REDUCTION = TV_REDUCTION
+_DEFAULT_COUNTRY_RATES = dict(COUNTRY_RATES)
 
 
 def _apply_formula_overrides(cfg: dict) -> None:
@@ -142,6 +169,10 @@ def _apply_formula_overrides(cfg: dict) -> None:
             QQ_REDUCTIONS[int(k)] = float(v)
     if "tv_reduction" in cfg:
         TV_REDUCTION = float(cfg["tv_reduction"])
+    if "country_rates" in cfg and isinstance(cfg["country_rates"], dict):
+        COUNTRY_RATES.clear()
+        for k, v in cfg["country_rates"].items():
+            COUNTRY_RATES[str(k)] = float(v)
 
 # Per-source conversion rates block is defined above; nothing to add here.
 
@@ -265,6 +296,8 @@ class Section3Computation(BaseModel):
     cpl_by_country: Optional[Dict[str, Dict[str, float]]] = None
     # Per-country cost breakdown (output): { country: { lead_type: cost } }
     cost_by_country: Optional[Dict[str, Dict[str, float]]] = None
+    # Countries selected on the RFP that are missing from COUNTRY_RATES table.
+    missing_country_rates: Optional[List[str]] = None
 
 
 class Section4Status(BaseModel):
@@ -367,11 +400,15 @@ def compute_section3(
     cq_reduction = CQ_REDUCTIONS.get(n_cq, 0.0)
     qq_reduction = QQ_REDUCTIONS.get(n_qq, 0.0)
 
-    def _leads_for(univ: float, lead_type: str) -> float:
+    def _leads_for(univ: float, lead_type: str, country: Optional[str] = None) -> float:
         if not (lead_type in targeted and source and univ > 0):
             return 0.0
         pct = float(rate_map.get(lead_type, 0))
         base = univ * pct / 100.0
+        # Country attainability multiplier (default 100% if country not in table).
+        if country:
+            country_pct = float(COUNTRY_RATES.get(country, 100.0))
+            base = base * (country_pct / 100.0)
         leads = base / cpc_divisor
         if lead_type == "MQL":
             leads = leads * (1.0 - cq_reduction)
@@ -379,6 +416,12 @@ def compute_section3(
             if with_tv:
                 leads = leads * (1.0 - TV_REDUCTION)
         return leads
+
+    # Determine "the country" for the single-universe path: only when exactly ONE
+    # geography is selected can we apply a single country attainability multiplier.
+    single_country: Optional[str] = None
+    if section1 and section1.target_geography and len(section1.target_geography) == 1:
+        single_country = section1.target_geography[0]
 
     total_leads = 0.0
     total_cost = 0.0
@@ -394,7 +437,7 @@ def compute_section3(
             row_leads = 0.0
             row_cost = 0.0
             for country, univ in universe_by_country.items():
-                lc_c = round(_leads_for(float(univ or 0), r.lead_type), 0)
+                lc_c = round(_leads_for(float(univ or 0), r.lead_type, country), 0)
                 if has_country_cpl:
                     cpl_c = float((cpl_map.get(country) or {}).get(r.lead_type) or cpl_default)
                 else:
@@ -404,7 +447,7 @@ def compute_section3(
             lc = round(row_leads, 0)
             tcost = round(row_cost, 2)
         else:
-            lc = round(_leads_for(universe, r.lead_type), 0)
+            lc = round(_leads_for(universe, r.lead_type, single_country), 0)
             tcost = round(cpl_default * lc, 2)
         new_rows.append(
             LeadRow(
@@ -428,13 +471,21 @@ def compute_section3(
             leads_row: Dict[str, float] = {}
             cost_row: Dict[str, float] = {}
             for r in section3.rows:
-                lc_c = round(_leads_for(float(univ or 0), r.lead_type), 0)
+                lc_c = round(_leads_for(float(univ or 0), r.lead_type, country), 0)
                 cpl_c = float((cpl_map.get(country) or {}).get(r.lead_type)
                               or (r.cpl or 0)) if has_country_cpl else float(r.cpl or 0)
                 leads_row[r.lead_type] = lc_c
                 cost_row[r.lead_type] = round(lc_c * cpl_c, 2)
             by_country_out[country] = leads_row
             cost_by_country_out[country] = cost_row
+
+    # Detect any selected geographies missing from COUNTRY_RATES (excluding regions
+    # that already exist in the table).
+    missing: List[str] = []
+    if section1 and section1.target_geography:
+        for g in section1.target_geography:
+            if g not in COUNTRY_RATES:
+                missing.append(g)
 
     return Section3Computation(
         data_source=section3.data_source,
@@ -445,6 +496,7 @@ def compute_section3(
         by_country=by_country_out,
         cpl_by_country=(cpl_map or None) if has_country_cpl else None,
         cost_by_country=cost_by_country_out,
+        missing_country_rates=missing or None,
     )
 
 
@@ -519,6 +571,7 @@ class FormulaConfig(BaseModel):
     cq_reductions: Optional[Dict[str, float]] = None
     qq_reductions: Optional[Dict[str, float]] = None
     tv_reduction: Optional[float] = None
+    country_rates: Optional[Dict[str, float]] = None
 
 
 def _current_formula() -> dict:
@@ -528,6 +581,7 @@ def _current_formula() -> dict:
         "cq_reductions": {str(k): v for k, v in CQ_REDUCTIONS.items()},
         "qq_reductions": {str(k): v for k, v in QQ_REDUCTIONS.items()},
         "tv_reduction": TV_REDUCTION,
+        "country_rates": dict(COUNTRY_RATES),
     }
 
 
@@ -538,6 +592,7 @@ def _defaults_formula() -> dict:
         "cq_reductions": {str(k): v for k, v in _DEFAULT_CQ_REDUCTIONS.items()},
         "qq_reductions": {str(k): v for k, v in _DEFAULT_QQ_REDUCTIONS.items()},
         "tv_reduction": _DEFAULT_TV_REDUCTION,
+        "country_rates": dict(_DEFAULT_COUNTRY_RATES),
     }
 
 
@@ -626,6 +681,7 @@ async def get_reference():
         "data_sources_labeled": [{"value": s, "code": SOURCE_CODES.get(s, s)} for s in DATA_SOURCES],
         "source_codes": SOURCE_CODES,
         "conversion_rates": CONVERSION_RATES,
+        "country_rates": dict(COUNTRY_RATES),
         "cpc_divisors": CPC_DIVISORS,
         "cq_reductions": CQ_REDUCTIONS,
         "qq_reductions": QQ_REDUCTIONS,

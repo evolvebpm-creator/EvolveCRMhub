@@ -46,6 +46,33 @@ export default function Admin({ onSaved }) {
   };
   const setTv = (val) => setConfig((c) => ({ ...c, tv_reduction: Number(val) / 100 }));
 
+  const setCountryRate = (country, val) => {
+    setConfig((c) => {
+      const next = clone(c);
+      next.country_rates = next.country_rates || {};
+      next.country_rates[country] = Number(val) || 0;
+      return next;
+    });
+  };
+  const addCountry = () => {
+    const name = (window.prompt("Enter country / region name:") || "").trim();
+    if (!name) return;
+    setConfig((c) => {
+      const next = clone(c);
+      next.country_rates = next.country_rates || {};
+      if (next.country_rates[name] === undefined) next.country_rates[name] = 50;
+      return next;
+    });
+  };
+  const removeCountry = (country) => {
+    if (!window.confirm(`Remove "${country}" from the attainability table?`)) return;
+    setConfig((c) => {
+      const next = clone(c);
+      if (next.country_rates) delete next.country_rates[country];
+      return next;
+    });
+  };
+
   const save = async () => {
     if (!config) return;
     setSaving(true);
@@ -163,6 +190,74 @@ export default function Admin({ onSaved }) {
                   ))}
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* Country Attainability Rates */}
+      <section className="panel p-6 md:p-8" data-testid="admin-country-panel">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <div className="font-label">Country Attainability · % Multiplier</div>
+            <div className="font-mono-tight text-xs text-[#666] mt-1 max-w-2xl">
+              Applied per country as: <code>leads = Universe × Source% × Country% ÷ CPC × modifiers</code>. Countries missing here compute at 100% and surface a warning on the RFP form.
+            </div>
+          </div>
+          <button
+            data-testid="admin-country-add"
+            type="button"
+            className="btn-secondary"
+            onClick={addCountry}
+          >
+            [ + Add Country ]
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="evcl-table" data-testid="admin-country-table">
+            <thead>
+              <tr>
+                <th>Country / Region</th>
+                <th className="num">% Attainability</th>
+                <th className="num" style={{ width: "80px" }}>&nbsp;</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(config.country_rates || {})
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([country, pct]) => (
+                  <tr key={country}>
+                    <td className="font-mono-tight">{country}</td>
+                    <td className="num" style={{ padding: "0.4rem" }}>
+                      <input
+                        type="number" step="1" min="0" max="100"
+                        data-testid={`admin-country-${country.replace(/\s+/g, "-").toLowerCase()}`}
+                        className="evcl-input text-right"
+                        style={{ width: "100px" }}
+                        value={pct}
+                        onChange={(e) => setCountryRate(country, e.target.value)}
+                      />
+                      <span className="font-mono-tight text-xs text-[#666] ml-1">%</span>
+                    </td>
+                    <td className="num">
+                      <button
+                        type="button"
+                        data-testid={`admin-country-remove-${country.replace(/\s+/g, "-").toLowerCase()}`}
+                        onClick={() => removeCountry(country)}
+                        className="font-mono-tight text-xs text-[#D92D20] underline"
+                      >
+                        remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              {(!config.country_rates || Object.keys(config.country_rates).length === 0) && (
+                <tr>
+                  <td colSpan={3} className="text-center py-4 font-mono-tight text-xs text-[#666]">
+                    No countries defined. Click <strong>+ Add Country</strong> to add one.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

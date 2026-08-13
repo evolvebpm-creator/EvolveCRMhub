@@ -668,6 +668,19 @@ function VariantCard({ testId, variant, setVariant, computed, reference, accent,
           </div>
         </div>
 
+        {/* Missing country attainability warning (per variant) */}
+        {Array.isArray(s3.missing_country_rates) && s3.missing_country_rates.length > 0 && (
+          <div
+            data-testid={`${testId}-missing-country-warning`}
+            className="border-l-4 border-[#D92D20] bg-[#FEF3F2] px-4 py-3 no-print"
+          >
+            <div className="font-label text-[#D92D20]">Missing Country Attainability</div>
+            <div className="font-mono-tight text-xs mt-1">
+              Compute defaulted to 100% for: <strong>{s3.missing_country_rates.join(", ")}</strong>. Add them in Admin → Country Attainability.
+            </div>
+          </div>
+        )}
+
         {/* Changes vs Option A — only rendered on Options B & C */}
         {!isBaseline && (
           <div data-testid={`${testId}-changes`} className="border-l-4 border-[#0A0A0A] bg-white px-4 py-3">
