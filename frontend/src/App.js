@@ -5,11 +5,13 @@ import Dashboard from "@/components/Dashboard";
 import RFPForm from "@/components/RFPForm";
 import RFPList from "@/components/RFPList";
 import Proposal from "@/components/Proposal";
+import Admin from "@/components/Admin";
 
 const TABS = [
   { key: "dashboard", label: "[ 01 / Dashboard ]" },
   { key: "form", label: "[ 02 / RFP Tracker ]" },
   { key: "list", label: "[ 03 / All RFPs ]" },
+  { key: "admin", label: "[ 04 / Admin ]" },
 ];
 
 function App() {
@@ -111,6 +113,9 @@ function App() {
             reference={reference}
             onBack={() => { setProposalRfp(null); setTab("list"); }}
           />
+        )}
+        {tab === "admin" && (
+          <Admin onSaved={() => fetchReference().then(setReference).catch(() => {})} />
         )}
       </main>
 

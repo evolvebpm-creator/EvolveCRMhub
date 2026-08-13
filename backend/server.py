@@ -104,6 +104,38 @@ QQ_REDUCTIONS: Dict[int, float] = {1: 0.25, 2: 0.35, 3: 0.45, 4: 0.50, 5: 0.60}
 # With TV (Tele Verification) → 10% reduction.
 TV_REDUCTION: float = 0.10
 
+# Snapshot of the ORIGINAL hardcoded defaults so the admin panel can reset.
+_DEFAULT_CONVERSION_RATES = {k: dict(v) for k, v in CONVERSION_RATES.items()}
+_DEFAULT_CPC_DIVISORS = dict(CPC_DIVISORS)
+_DEFAULT_CQ_REDUCTIONS = dict(CQ_REDUCTIONS)
+_DEFAULT_QQ_REDUCTIONS = dict(QQ_REDUCTIONS)
+_DEFAULT_TV_REDUCTION = TV_REDUCTION
+
+
+def _apply_formula_overrides(cfg: dict) -> None:
+    """Overwrite module-level formula constants with the provided (partial) dict."""
+    if not cfg:
+        return
+    global TV_REDUCTION
+    if "conversion_rates" in cfg and isinstance(cfg["conversion_rates"], dict):
+        CONVERSION_RATES.clear()
+        for src, rates in cfg["conversion_rates"].items():
+            CONVERSION_RATES[src] = {lt: float(v) for lt, v in (rates or {}).items()}
+    if "cpc_divisors" in cfg and isinstance(cfg["cpc_divisors"], dict):
+        CPC_DIVISORS.clear()
+        for k, v in cfg["cpc_divisors"].items():
+            CPC_DIVISORS[int(k)] = float(v)
+    if "cq_reductions" in cfg and isinstance(cfg["cq_reductions"], dict):
+        CQ_REDUCTIONS.clear()
+        for k, v in cfg["cq_reductions"].items():
+            CQ_REDUCTIONS[int(k)] = float(v)
+    if "qq_reductions" in cfg and isinstance(cfg["qq_reductions"], dict):
+        QQ_REDUCTIONS.clear()
+        for k, v in cfg["qq_reductions"].items():
+            QQ_REDUCTIONS[int(k)] = float(v)
+    if "tv_reduction" in cfg:
+        TV_REDUCTION = float(cfg["tv_reduction"])
+
 # Per-source conversion rates block is defined above; nothing to add here.
 
 
@@ -220,6 +252,8 @@ class Section3Computation(BaseModel):
     grand_total_leads: float = 0
     grand_total_cost: float = 0
     blended_cpl: float = 0
+    # Optional per-country breakdown: { country: { lead_type: lead_counts } }
+    by_country: Optional[Dict[str, Dict[str, float]]] = None
 
 
 class Section4Status(BaseModel):
@@ -283,6 +317,7 @@ def compute_section3(
     section3: Section3Computation,
     section1: Optional[Section1Discovery] = None,
     data_universe: float = 0.0,
+    universe_by_country: Optional[Dict[str, float]] = None,
 ) -> Section3Computation:
     """Auto-fill lead counts for the lead-type rows that match the Campaign Types
     selected in Section 1, using this stacked formula:
@@ -296,6 +331,8 @@ def compute_section3(
         total_cost  = round(cpl × lead_counts, 2)
 
     CPL is user-entered (numeric). Non-targeted rows stay 0 even if a CPL was typed.
+    When a per-country universe map is supplied, also emit a `by_country` map so
+    proposals can display the geographic allocation.
     """
     source = section3.data_source if section3.data_source in CONVERSION_RATES else None
     universe = float(data_universe or 0)
@@ -319,24 +356,25 @@ def compute_section3(
     cq_reduction = CQ_REDUCTIONS.get(n_cq, 0.0)
     qq_reduction = QQ_REDUCTIONS.get(n_qq, 0.0)
 
+    def _leads_for(univ: float, lead_type: str) -> float:
+        if not (lead_type in targeted and source and univ > 0):
+            return 0.0
+        pct = float(rate_map.get(lead_type, 0))
+        base = univ * pct / 100.0
+        leads = base / cpc_divisor
+        if lead_type == "MQL":
+            leads = leads * (1.0 - cq_reduction)
+            leads = leads * (1.0 - qq_reduction)
+            if with_tv:
+                leads = leads * (1.0 - TV_REDUCTION)
+        return leads
+
     total_leads = 0.0
     total_cost = 0.0
     new_rows: List[LeadRow] = []
     for r in section3.rows:
         cpl = float(r.cpl or 0)
-        if r.lead_type in targeted and source and universe > 0:
-            pct = float(rate_map.get(r.lead_type, 0))
-            base = universe * pct / 100.0
-            leads = base / cpc_divisor
-            # CQ / QQ / TV reductions apply ONLY to the MQL row per spec.
-            if r.lead_type == "MQL":
-                leads = leads * (1.0 - cq_reduction)
-                leads = leads * (1.0 - qq_reduction)
-                if with_tv:
-                    leads = leads * (1.0 - TV_REDUCTION)
-            lc = round(leads, 0)
-        else:
-            lc = 0.0
+        lc = round(_leads_for(universe, r.lead_type), 0)
         tcost = round(cpl * lc, 2)
         new_rows.append(
             LeadRow(
@@ -349,12 +387,24 @@ def compute_section3(
         total_leads += lc
         total_cost += tcost
     blended = round(total_cost / total_leads, 2) if total_leads > 0 else 0.0
+
+    # Per-country breakdown (only when a split universe was provided).
+    by_country_out: Optional[Dict[str, Dict[str, float]]] = None
+    if universe_by_country:
+        by_country_out = {}
+        for country, univ in universe_by_country.items():
+            row_map: Dict[str, float] = {}
+            for r in section3.rows:
+                row_map[r.lead_type] = round(_leads_for(float(univ or 0), r.lead_type), 0)
+            by_country_out[country] = row_map
+
     return Section3Computation(
         data_source=section3.data_source,
         rows=new_rows,
         grand_total_leads=round(total_leads, 2),
         grand_total_cost=round(total_cost, 2),
         blended_cpl=blended,
+        by_country=by_country_out,
     )
 
 
@@ -404,9 +454,75 @@ def apply_compute(rfp_in: RFPBase) -> RFPBase:
     # Auto-compute Scope's TAL match %.
     rfp_in.section1.scope = compute_scope(rfp_in.section1.scope)
     rfp_in.section3 = compute_section3(
-        rfp_in.section3, rfp_in.section1, data_universe=universe
+        rfp_in.section3, rfp_in.section1,
+        data_universe=universe,
+        universe_by_country=by_country,
     )
     return rfp_in
+
+
+# ----------------------- Formula Settings (Admin) ----------------------- #
+
+SETTINGS_ID = "formula_config"
+
+
+async def _load_settings_on_start() -> None:
+    doc = await db.settings.find_one({"id": SETTINGS_ID}, {"_id": 0})
+    if doc:
+        _apply_formula_overrides(doc)
+
+
+class FormulaConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    conversion_rates: Optional[Dict[str, Dict[str, float]]] = None
+    cpc_divisors: Optional[Dict[str, float]] = None  # keys as strings (JSON-friendly)
+    cq_reductions: Optional[Dict[str, float]] = None
+    qq_reductions: Optional[Dict[str, float]] = None
+    tv_reduction: Optional[float] = None
+
+
+def _current_formula() -> dict:
+    return {
+        "conversion_rates": {k: dict(v) for k, v in CONVERSION_RATES.items()},
+        "cpc_divisors": {str(k): v for k, v in CPC_DIVISORS.items()},
+        "cq_reductions": {str(k): v for k, v in CQ_REDUCTIONS.items()},
+        "qq_reductions": {str(k): v for k, v in QQ_REDUCTIONS.items()},
+        "tv_reduction": TV_REDUCTION,
+    }
+
+
+def _defaults_formula() -> dict:
+    return {
+        "conversion_rates": {k: dict(v) for k, v in _DEFAULT_CONVERSION_RATES.items()},
+        "cpc_divisors": {str(k): v for k, v in _DEFAULT_CPC_DIVISORS.items()},
+        "cq_reductions": {str(k): v for k, v in _DEFAULT_CQ_REDUCTIONS.items()},
+        "qq_reductions": {str(k): v for k, v in _DEFAULT_QQ_REDUCTIONS.items()},
+        "tv_reduction": _DEFAULT_TV_REDUCTION,
+    }
+
+
+@api_router.get("/settings/formula")
+async def get_formula():
+    return {"current": _current_formula(), "defaults": _defaults_formula()}
+
+
+@api_router.put("/settings/formula")
+async def update_formula(payload: FormulaConfig):
+    body = payload.model_dump(exclude_none=True)
+    _apply_formula_overrides(body)
+    await db.settings.update_one(
+        {"id": SETTINGS_ID},
+        {"$set": {**body, "id": SETTINGS_ID, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {"ok": True, "current": _current_formula()}
+
+
+@api_router.post("/settings/formula/reset")
+async def reset_formula():
+    _apply_formula_overrides(_defaults_formula())
+    await db.settings.delete_one({"id": SETTINGS_ID})
+    return {"ok": True, "current": _current_formula()}
 
 
 # ----------------------- Reference Endpoints ----------------------- #
@@ -853,6 +969,14 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+@app.on_event("startup")
+async def _startup_load_settings():
+    try:
+        await _load_settings_on_start()
+    except Exception as e:
+        logger.warning(f"Failed to load formula settings on startup: {e}")
 
 
 @app.on_event("shutdown")

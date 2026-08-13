@@ -737,6 +737,51 @@ function VariantCard({ testId, variant, setVariant, computed, reference, accent,
           </table>
         </div>
 
+        {/* Per-country lead split (rendered only when the backend supplies it) */}
+        {s3.by_country && Object.keys(s3.by_country).length > 1 && activeRows.length > 0 && (
+          <div data-testid={`${testId}-by-country`}>
+            <div className="font-label mb-3">Lead Allocation by Geography</div>
+            <div className="overflow-x-auto">
+              <table className="evcl-table">
+                <thead>
+                  <tr>
+                    <th>Geography</th>
+                    {activeRows.map((r) => (
+                      <th key={r.lead_type} className="num uppercase">{r.lead_type}</th>
+                    ))}
+                    <th className="num">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(s3.by_country).map(([country, leadMap]) => {
+                    const rowTotal = activeRows.reduce(
+                      (acc, r) => acc + Number(leadMap[r.lead_type] || 0), 0
+                    );
+                    return (
+                      <tr key={country} data-testid={`${testId}-geo-row-${country.replace(/\s+/g, "-").toLowerCase()}`}>
+                        <td className="font-mono-tight">{country}</td>
+                        {activeRows.map((r) => (
+                          <td key={r.lead_type} className="num">
+                            {fmtNum(leadMap[r.lead_type] || 0)}
+                          </td>
+                        ))}
+                        <td className="num font-semibold">{fmtNum(rowTotal)}</td>
+                      </tr>
+                    );
+                  })}
+                  <tr className="border-t-2 border-[#0A0A0A] font-semibold">
+                    <td className="font-label">Total</td>
+                    {activeRows.map((r) => (
+                      <td key={r.lead_type} className="num">{fmtNum(r.lead_counts)}</td>
+                    ))}
+                    <td className="num">{fmtNum(s3.grand_total_leads)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* Grand line */}
         <div className="border-t-2 border-[#0A0A0A] pt-4 grid grid-cols-3 gap-4">
           <div>

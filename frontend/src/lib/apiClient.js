@@ -16,6 +16,10 @@ export const updateRfp = async (id, payload) => (await api.put(`/rfps/${id}`, pa
 export const deleteRfp = async (id) => (await api.delete(`/rfps/${id}`)).data;
 export const previewCompute = async (payload) => (await api.post("/rfps/preview", payload)).data;
 
+export const fetchFormula = async () => (await api.get("/settings/formula")).data;
+export const updateFormula = async (payload) => (await api.put("/settings/formula", payload)).data;
+export const resetFormula = async () => (await api.post("/settings/formula/reset")).data;
+
 export const downloadFile = async (path, filename) => {
   const res = await api.get(path, { responseType: "blob" });
   const url = window.URL.createObjectURL(new Blob([res.data]));
