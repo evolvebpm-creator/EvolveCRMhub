@@ -204,6 +204,7 @@ class Section1Discovery(BaseModel):
 
 class Section2Universe(BaseModel):
     data_universe: Optional[float] = 0  # auto-computed estimation
+    universe_by_country: Optional[Dict[str, float]] = None  # per-geography split
 
 
 class LeadRow(BaseModel):
@@ -390,9 +391,16 @@ def compute_scope(scope: RFPScope) -> RFPScope:
 
 
 def apply_compute(rfp_in: RFPBase) -> RFPBase:
-    # Data Universe is a MANUAL input (no auto-suggest). We simply pass it through.
-    universe = float(rfp_in.section2.data_universe or 0)
-    rfp_in.section2.data_universe = universe
+    # Data Universe: when the user has provided a per-country split, the total
+    # universe is the SUM of those buckets; otherwise treat data_universe as a
+    # single manual input.
+    by_country = rfp_in.section2.universe_by_country or {}
+    if by_country:
+        universe = float(sum((v or 0) for v in by_country.values()))
+        rfp_in.section2.data_universe = universe
+    else:
+        universe = float(rfp_in.section2.data_universe or 0)
+        rfp_in.section2.data_universe = universe
     # Auto-compute Scope's TAL match %.
     rfp_in.section1.scope = compute_scope(rfp_in.section1.scope)
     rfp_in.section3 = compute_section3(

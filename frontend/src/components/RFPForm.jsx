@@ -560,27 +560,98 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
 
       {/* ============== SECTION 2: DATA UNIVERSE ============== */}
       <Section title="Section 02 — Data Universe (manual input)">
-        <div data-testid="data-universe-block" className="bg-[#0A0A0A] text-white px-8 py-8 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-          <div className="max-w-md">
-            <div className="font-label text-white/60">Data Universe</div>
-            <div className="font-serif-display italic text-white/70 text-base mt-3">
-              Enter the total addressable data universe manually — this is the number the Section 3 lead formulas apply source-conversion % against.
+        {(() => {
+          const geos = s1.target_geography || [];
+          const isSplit = geos.length > 1;
+          const byCountry = s2.universe_by_country || {};
+
+          const setSingle = (val) => setRfp((p) => ({
+            ...p,
+            section2: { ...p.section2, data_universe: Number(val) || 0, universe_by_country: null },
+          }));
+          const setForGeo = (geo, val) => setRfp((p) => {
+            const nextMap = { ...(p.section2.universe_by_country || {}) };
+            nextMap[geo] = Number(val) || 0;
+            // Drop keys no longer selected in target_geography.
+            const validKeys = new Set(p.section1.target_geography || []);
+            Object.keys(nextMap).forEach((k) => { if (!validKeys.has(k)) delete nextMap[k]; });
+            const sum = Object.values(nextMap).reduce((a, b) => a + (Number(b) || 0), 0);
+            return {
+              ...p,
+              section2: { ...p.section2, universe_by_country: nextMap, data_universe: sum },
+            };
+          });
+
+          if (isSplit) {
+            const total = geos.reduce((acc, g) => acc + (Number(byCountry[g]) || 0), 0);
+            return (
+              <div data-testid="data-universe-block" className="bg-[#0A0A0A] text-white px-8 py-8">
+                <div className="flex items-start justify-between flex-wrap gap-4 mb-5 pb-4 border-b border-white/20">
+                  <div className="max-w-md">
+                    <div className="font-label text-white/60">Data Universe · Per Geography</div>
+                    <div className="font-serif-display italic text-white/70 text-base mt-2">
+                      Multiple geographies selected — enter the addressable universe for each. Section 3 uses the total.
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-label text-white/60">Combined Total</div>
+                    <div
+                      data-testid="data-universe-total"
+                      className="kpi-num text-white"
+                      style={{ fontSize: "2.2rem" }}
+                    >
+                      {new Intl.NumberFormat("en-US").format(total)}
+                    </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {geos.map((geo) => (
+                    <div key={geo} className="flex items-center justify-between gap-3 border-b border-white/15 pb-2">
+                      <label
+                        className="font-mono-tight text-sm text-white/85 truncate"
+                        title={geo}
+                        style={{ maxWidth: "60%" }}
+                      >
+                        {geo}
+                      </label>
+                      <input
+                        type="number" min="0"
+                        data-testid={`input-universe-${geo.replace(/\s+/g, "-").toLowerCase()}`}
+                        className="evcl-input text-right"
+                        style={{ background: "#1a1a1a", color: "#fff", fontSize: "1.1rem", width: "160px", borderBottomColor: "#fff" }}
+                        value={byCountry[geo] || 0}
+                        onChange={(e) => setForGeo(geo, e.target.value)}
+                        placeholder="0"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div data-testid="data-universe-block" className="bg-[#0A0A0A] text-white px-8 py-8 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+              <div className="max-w-md">
+                <div className="font-label text-white/60">Data Universe</div>
+                <div className="font-serif-display italic text-white/70 text-base mt-3">
+                  Enter the total addressable data universe manually — this is the number the Section 3 lead formulas apply source-conversion % against.
+                </div>
+              </div>
+              <div className="flex items-end gap-3">
+                <input
+                  type="number" min="0"
+                  data-testid="input-data-universe"
+                  className="evcl-input text-right"
+                  style={{ background: "#1a1a1a", color: "#fff", fontSize: "1.6rem", width: "260px", borderBottomColor: "#fff" }}
+                  value={s2.data_universe || 0}
+                  onChange={(e) => setSingle(e.target.value)}
+                  placeholder="0"
+                />
+              </div>
             </div>
-          </div>
-          <div className="flex items-end gap-3">
-            <input
-              type="number" min="0"
-              data-testid="input-data-universe"
-              className="evcl-input text-right"
-              style={{background:"#1a1a1a",color:"#fff",fontSize:"1.6rem",width:"260px",borderBottomColor:"#fff"}}
-              value={s2.data_universe || 0}
-              onChange={(e) => setRfp((p) => ({
-                ...p, section2: { ...p.section2, data_universe: Number(e.target.value) || 0 },
-              }))}
-              placeholder="0"
-            />
-          </div>
-        </div>
+          );
+        })()}
       </Section>
 
       {/* ============== SECTION 3: LEAD COMPUTATION ============== */}

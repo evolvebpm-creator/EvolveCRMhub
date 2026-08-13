@@ -506,22 +506,91 @@ function VariantCard({ testId, variant, setVariant, computed, reference, accent,
         />
 
         {/* Data Universe — prominent editable input per variant */}
-        <div className="bg-[#0A0A0A] text-white px-5 py-4 flex items-center justify-between gap-4">
-          <div>
-            <div className="font-label text-white/60">Data Universe</div>
-            <div className="font-mono-tight text-xs text-white/50 mt-1">
-              Manual input · drives Section-3 lead volumes
+        {(() => {
+          const geos = s1.target_geography || [];
+          const isSplit = geos.length > 1;
+          const byCountry = (variant.section2 || {}).universe_by_country || {};
+
+          const setSingleUniv = (val) => setVariant((v) => {
+            const next = setDeep(v, "section2.data_universe", Number(val) || 0);
+            return setDeep(next, "section2.universe_by_country", null);
+          });
+          const setForGeo = (geo, val) => setVariant((v) => {
+            const map = { ...((v.section2 || {}).universe_by_country || {}) };
+            map[geo] = Number(val) || 0;
+            const validKeys = new Set(v.section1.target_geography || []);
+            Object.keys(map).forEach((k) => { if (!validKeys.has(k)) delete map[k]; });
+            const sum = Object.values(map).reduce((a, b) => a + (Number(b) || 0), 0);
+            const next = setDeep(v, "section2.universe_by_country", map);
+            return setDeep(next, "section2.data_universe", sum);
+          });
+
+          if (isSplit) {
+            const total = geos.reduce((acc, g) => acc + (Number(byCountry[g]) || 0), 0);
+            return (
+              <div className="bg-[#0A0A0A] text-white px-5 py-4">
+                <div className="flex items-center justify-between gap-4 pb-3 mb-3 border-b border-white/20">
+                  <div>
+                    <div className="font-label text-white/60">Data Universe · Per Geography</div>
+                    <div className="font-mono-tight text-xs text-white/50 mt-1">
+                      {geos.length} geographies · edit each to reshape lead volumes
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-label text-white/60">Combined</div>
+                    <div
+                      className="font-mono-tight font-semibold text-white"
+                      data-testid={`${testId}-universe-total`}
+                      style={{ fontSize: "1.4rem" }}
+                    >
+                      {fmtNum(total)}
+                    </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-2">
+                  {geos.map((geo) => (
+                    <div key={geo} className="flex items-center justify-between gap-3">
+                      <label
+                        className="font-mono-tight text-xs text-white/85 truncate"
+                        title={geo}
+                        style={{ maxWidth: "55%" }}
+                      >
+                        {geo}
+                      </label>
+                      <input
+                        type="number" min="0"
+                        data-testid={`${testId}-universe-${geo.replace(/\s+/g, "-").toLowerCase()}`}
+                        className="evcl-input text-right"
+                        style={{ background: "#1a1a1a", color: "#fff", fontSize: "1rem", width: "140px", borderBottomColor: "#fff" }}
+                        value={byCountry[geo] || 0}
+                        onChange={(e) => setForGeo(geo, e.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div className="bg-[#0A0A0A] text-white px-5 py-4 flex items-center justify-between gap-4">
+              <div>
+                <div className="font-label text-white/60">Data Universe</div>
+                <div className="font-mono-tight text-xs text-white/50 mt-1">
+                  Manual input · drives Section-3 lead volumes
+                </div>
+              </div>
+              <input
+                type="number" min="0"
+                data-testid={`${testId}-universe-inline`}
+                className="evcl-input text-right"
+                style={{ background: "#1a1a1a", color: "#fff", fontSize: "1.5rem", width: "200px", borderBottomColor: "#fff" }}
+                value={(variant.section2 || {}).data_universe || 0}
+                onChange={(e) => setSingleUniv(e.target.value)}
+              />
             </div>
-          </div>
-          <input
-            type="number" min="0"
-            data-testid={`${testId}-universe-inline`}
-            className="evcl-input text-right"
-            style={{background:"#1a1a1a",color:"#fff",fontSize:"1.5rem",width:"200px",borderBottomColor:"#fff"}}
-            value={(variant.section2 || {}).data_universe || 0}
-            onChange={(e) => setVariant((v) => setDeep(v, "section2.data_universe", Number(e.target.value) || 0))}
-          />
-        </div>
+          );
+        })()}
 
         {/* Snapshot chips (client-facing) */}
         <div className="grid grid-cols-2 gap-x-6 gap-y-3">
