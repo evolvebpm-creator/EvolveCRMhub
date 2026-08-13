@@ -254,6 +254,10 @@ class Section3Computation(BaseModel):
     blended_cpl: float = 0
     # Optional per-country breakdown: { country: { lead_type: lead_counts } }
     by_country: Optional[Dict[str, Dict[str, float]]] = None
+    # Optional per-country CPL override map (input): { country: { lead_type: cpl } }
+    cpl_by_country: Optional[Dict[str, Dict[str, float]]] = None
+    # Per-country cost breakdown (output): { country: { lead_type: cost } }
+    cost_by_country: Optional[Dict[str, Dict[str, float]]] = None
 
 
 class Section4Status(BaseModel):
@@ -372,14 +376,33 @@ def compute_section3(
     total_leads = 0.0
     total_cost = 0.0
     new_rows: List[LeadRow] = []
+    cpl_map = section3.cpl_by_country or {}
+    has_split = bool(universe_by_country)
+    has_country_cpl = bool(cpl_map) and has_split
+
     for r in section3.rows:
-        cpl = float(r.cpl or 0)
-        lc = round(_leads_for(universe, r.lead_type), 0)
-        tcost = round(cpl * lc, 2)
+        cpl_default = float(r.cpl or 0)
+        if has_split:
+            # Sum leads AND cost per country using per-country CPL when supplied.
+            row_leads = 0.0
+            row_cost = 0.0
+            for country, univ in universe_by_country.items():
+                lc_c = round(_leads_for(float(univ or 0), r.lead_type), 0)
+                if has_country_cpl:
+                    cpl_c = float((cpl_map.get(country) or {}).get(r.lead_type) or cpl_default)
+                else:
+                    cpl_c = cpl_default
+                row_leads += lc_c
+                row_cost += lc_c * cpl_c
+            lc = round(row_leads, 0)
+            tcost = round(row_cost, 2)
+        else:
+            lc = round(_leads_for(universe, r.lead_type), 0)
+            tcost = round(cpl_default * lc, 2)
         new_rows.append(
             LeadRow(
                 lead_type=r.lead_type,
-                cpl=cpl,
+                cpl=cpl_default,
                 lead_counts=lc,
                 total_cost=tcost,
             )
@@ -390,13 +413,21 @@ def compute_section3(
 
     # Per-country breakdown (only when a split universe was provided).
     by_country_out: Optional[Dict[str, Dict[str, float]]] = None
-    if universe_by_country:
+    cost_by_country_out: Optional[Dict[str, Dict[str, float]]] = None
+    if has_split:
         by_country_out = {}
+        cost_by_country_out = {}
         for country, univ in universe_by_country.items():
-            row_map: Dict[str, float] = {}
+            leads_row: Dict[str, float] = {}
+            cost_row: Dict[str, float] = {}
             for r in section3.rows:
-                row_map[r.lead_type] = round(_leads_for(float(univ or 0), r.lead_type), 0)
-            by_country_out[country] = row_map
+                lc_c = round(_leads_for(float(univ or 0), r.lead_type), 0)
+                cpl_c = float((cpl_map.get(country) or {}).get(r.lead_type)
+                              or (r.cpl or 0)) if has_country_cpl else float(r.cpl or 0)
+                leads_row[r.lead_type] = lc_c
+                cost_row[r.lead_type] = round(lc_c * cpl_c, 2)
+            by_country_out[country] = leads_row
+            cost_by_country_out[country] = cost_row
 
     return Section3Computation(
         data_source=section3.data_source,
@@ -405,6 +436,8 @@ def compute_section3(
         grand_total_cost=round(total_cost, 2),
         blended_cpl=blended,
         by_country=by_country_out,
+        cpl_by_country=(cpl_map or None) if has_country_cpl else None,
+        cost_by_country=cost_by_country_out,
     )
 
 

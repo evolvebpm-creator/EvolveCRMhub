@@ -745,40 +745,81 @@ function VariantCard({ testId, variant, setVariant, computed, reference, accent,
               <table className="evcl-table">
                 <thead>
                   <tr>
-                    <th>Geography</th>
+                    <th rowSpan={2} style={{ verticalAlign: "bottom" }}>Geography</th>
                     {activeRows.map((r) => (
-                      <th key={r.lead_type} className="num uppercase">{r.lead_type}</th>
+                      <th key={r.lead_type} colSpan={3} className="num uppercase" style={{ borderLeft: "1px solid #DCDCCF" }}>
+                        {r.lead_type}
+                      </th>
                     ))}
-                    <th className="num">Total</th>
+                    <th rowSpan={2} className="num" style={{ verticalAlign: "bottom", borderLeft: "1px solid #DCDCCF" }}>
+                      Cost
+                    </th>
+                  </tr>
+                  <tr>
+                    {activeRows.map((r) => (
+                      <React.Fragment key={r.lead_type}>
+                        <th className="num" style={{ borderLeft: "1px solid #DCDCCF", fontSize: "0.65rem" }}>Leads</th>
+                        <th className="num" style={{ fontSize: "0.65rem" }}>CPL</th>
+                        <th className="num" style={{ fontSize: "0.65rem" }}>Cost</th>
+                      </React.Fragment>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {Object.entries(s3.by_country).map(([country, leadMap]) => {
-                    const rowTotal = activeRows.reduce(
-                      (acc, r) => acc + Number(leadMap[r.lead_type] || 0), 0
+                    const cplMap = (s3.cpl_by_country || {})[country] || {};
+                    const costMap = (s3.cost_by_country || {})[country] || {};
+                    const rowTotalCost = activeRows.reduce(
+                      (acc, r) => acc + Number(costMap[r.lead_type] || 0), 0
                     );
                     return (
                       <tr key={country} data-testid={`${testId}-geo-row-${country.replace(/\s+/g, "-").toLowerCase()}`}>
                         <td className="font-mono-tight">{country}</td>
-                        {activeRows.map((r) => (
-                          <td key={r.lead_type} className="num">
-                            {fmtNum(leadMap[r.lead_type] || 0)}
-                          </td>
-                        ))}
-                        <td className="num font-semibold">{fmtNum(rowTotal)}</td>
+                        {activeRows.map((r) => {
+                          const cplUsed = cplMap[r.lead_type] ?? r.cpl;
+                          const overridden = cplMap[r.lead_type] !== undefined && cplMap[r.lead_type] !== null;
+                          return (
+                            <React.Fragment key={r.lead_type}>
+                              <td className="num" style={{ borderLeft: "1px solid #DCDCCF" }}>
+                                {fmtNum(leadMap[r.lead_type] || 0)}
+                              </td>
+                              <td className="num" title={overridden ? "Per-country override" : "Row default"}>
+                                {fmtCurrency(cplUsed)}
+                                {overridden && (
+                                  <span className="font-mono-tight text-[9px] text-[#039855] ml-1">•</span>
+                                )}
+                              </td>
+                              <td className="num">{fmtCurrency(costMap[r.lead_type] || 0)}</td>
+                            </React.Fragment>
+                          );
+                        })}
+                        <td className="num font-semibold" style={{ borderLeft: "1px solid #DCDCCF" }}>
+                          {fmtCurrency(rowTotalCost)}
+                        </td>
                       </tr>
                     );
                   })}
                   <tr className="border-t-2 border-[#0A0A0A] font-semibold">
                     <td className="font-label">Total</td>
                     {activeRows.map((r) => (
-                      <td key={r.lead_type} className="num">{fmtNum(r.lead_counts)}</td>
+                      <React.Fragment key={r.lead_type}>
+                        <td className="num" style={{ borderLeft: "1px solid #DCDCCF" }}>{fmtNum(r.lead_counts)}</td>
+                        <td className="num">—</td>
+                        <td className="num">{fmtCurrency(r.total_cost)}</td>
+                      </React.Fragment>
                     ))}
-                    <td className="num">{fmtNum(s3.grand_total_leads)}</td>
+                    <td className="num" style={{ borderLeft: "1px solid #DCDCCF" }}>
+                      {fmtCurrency(s3.grand_total_cost)}
+                    </td>
                   </tr>
                 </tbody>
               </table>
             </div>
+            {s3.cpl_by_country && Object.keys(s3.cpl_by_country).length > 0 && (
+              <div className="font-mono-tight text-[10px] text-[#666] mt-2">
+                <span className="text-[#039855]">•</span> = country-specific CPL override applied
+              </div>
+            )}
           </div>
         )}
 
@@ -1016,6 +1057,76 @@ function VariantEditor({ testId, variant, reference, update }) {
           })}
         </div>
       </div>
+
+      {/* Per-Country CPL Override — only when multi-geo AND ≥1 active lead type */}
+      {(() => {
+        const geos = s1.target_geography || [];
+        const activeLTs = (s3.rows || []).filter((r) => (r.lead_counts || 0) > 0);
+        // If no active rows yet (before first compute), fall back to any row with a CPL.
+        const rowsToShow = activeLTs.length > 0
+          ? activeLTs
+          : (s3.rows || []).filter((r) => (r.cpl || 0) > 0);
+        if (geos.length <= 1 || rowsToShow.length === 0) return null;
+        const cplMap = s3.cpl_by_country || {};
+        const setCpl = (country, lt, val) => {
+          const next = { ...(cplMap || {}) };
+          const row = { ...(next[country] || {}) };
+          const num = val === "" || val == null ? undefined : Number(val);
+          if (num === undefined || Number.isNaN(num) || num <= 0) delete row[lt];
+          else row[lt] = num;
+          if (Object.keys(row).length === 0) delete next[country];
+          else next[country] = row;
+          update("section3.cpl_by_country", next);
+        };
+        return (
+          <div data-testid={`${testId}-country-cpl-override`} className="pt-4 border-t border-[#DCDCCF]">
+            <div className="font-label mb-2">Per-Country CPL Override · Optional</div>
+            <div className="font-mono-tight text-[11px] text-[#666] mb-3">
+              Blank cells fall back to the row-level CPL above. Cost = Σ (country leads × country CPL).
+            </div>
+            <div className="overflow-x-auto">
+              <table className="evcl-table">
+                <thead>
+                  <tr>
+                    <th>Geography</th>
+                    {rowsToShow.map((r) => (
+                      <th key={r.lead_type} className="num uppercase" style={{ fontSize: "0.65rem" }}>
+                        {r.lead_type}
+                        <div className="font-mono-tight text-[9px] text-[#666] normal-case">
+                          default {fmtCurrency(r.cpl)}
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {geos.map((country) => (
+                    <tr key={country}>
+                      <td className="font-mono-tight" style={{ fontSize: "0.7rem" }}>{country}</td>
+                      {rowsToShow.map((r) => {
+                        const val = (cplMap[country] || {})[r.lead_type];
+                        return (
+                          <td key={r.lead_type} className="num" style={{ padding: "0.3rem" }}>
+                            <input
+                              type="number" step="0.01" min="0"
+                              data-testid={`${testId}-country-cpl-${country.replace(/\s+/g, "-").toLowerCase()}-${r.lead_type}`}
+                              className="evcl-input text-right"
+                              style={{ width: "100px", fontSize: "0.75rem" }}
+                              value={val ?? ""}
+                              placeholder={`${r.cpl || 0}`}
+                              onChange={(e) => setCpl(country, r.lead_type, e.target.value)}
+                            />
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
     </>
   );
 }

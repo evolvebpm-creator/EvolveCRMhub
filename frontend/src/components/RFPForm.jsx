@@ -86,8 +86,10 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
   }, [
     JSON.stringify(debounced.section1),
     debounced.section2.data_universe,
+    JSON.stringify(debounced.section2.universe_by_country || {}),
     debounced.section3.data_source,
     JSON.stringify(debounced.section3.rows.map(r => ({ t: r.lead_type, c: r.cpl }))),
+    JSON.stringify(debounced.section3.cpl_by_country || {}),
   ]);
 
   const updateS1 = (key, value) =>
@@ -745,6 +747,74 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
         <div className="font-mono-tight text-xs text-[#666] mt-3 leading-relaxed">
           Formula per active row: <code>base = Data Universe × source%</code> → <code>÷ CPC divisor</code> → <code>× (1 − CQ%)</code> → <code>× (1 − QQ%)</code> → <code>× 0.9 if TV</code>. Total = CPL × Lead Counts.
         </div>
+
+        {/* Per-country CPL override — only when multi-geo AND ≥1 active lead type */}
+        {(() => {
+          const geos = s1.target_geography || [];
+          const activeLTs = (s3.rows || []).filter((r) => targetedSet.has(r.lead_type));
+          if (geos.length <= 1 || activeLTs.length === 0) return null;
+          const map = s3.cpl_by_country || {};
+          const setCplByCountry = (country, lt, val) => {
+            setRfp((p) => {
+              const next = { ...(p.section3.cpl_by_country || {}) };
+              const row = { ...(next[country] || {}) };
+              const num = val === "" || val == null ? undefined : Number(val);
+              if (num === undefined || Number.isNaN(num) || num <= 0) delete row[lt];
+              else row[lt] = num;
+              if (Object.keys(row).length === 0) delete next[country];
+              else next[country] = row;
+              return { ...p, section3: { ...p.section3, cpl_by_country: next } };
+            });
+          };
+          return (
+            <div data-testid="country-cpl-override" className="mt-8 pt-6 border-t border-[#DCDCCF]">
+              <div className="font-label mb-2">Per-Country CPL Override · Optional</div>
+              <div className="font-mono-tight text-xs text-[#666] mb-4">
+                Blank cells fall back to the row-level CPL above. Grand Total Cost becomes the sum of (country leads × country CPL).
+              </div>
+              <div className="overflow-x-auto">
+                <table className="evcl-table" data-testid="country-cpl-table">
+                  <thead>
+                    <tr>
+                      <th>Geography</th>
+                      {activeLTs.map((r) => (
+                        <th key={r.lead_type} className="num uppercase">
+                          {r.lead_type}
+                          <div className="font-mono-tight text-[10px] text-[#666] normal-case">
+                            default {fmtCurrency(r.cpl)}
+                          </div>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {geos.map((country) => (
+                      <tr key={country}>
+                        <td className="font-mono-tight">{country}</td>
+                        {activeLTs.map((r) => {
+                          const val = ((map[country] || {})[r.lead_type]);
+                          return (
+                            <td key={r.lead_type} className="num" style={{ padding: "0.4rem" }}>
+                              <input
+                                type="number" step="0.01" min="0"
+                                data-testid={`cpl-${country.replace(/\s+/g, "-").toLowerCase()}-${r.lead_type}`}
+                                className="evcl-input text-right"
+                                style={{ width: "120px" }}
+                                value={val ?? ""}
+                                placeholder={`${r.cpl || 0}`}
+                                onChange={(e) => setCplByCountry(country, r.lead_type, e.target.value)}
+                              />
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })()}
       </Section>
 
       {/* ============== SECTION 4: RFP STATUS ============== */}
