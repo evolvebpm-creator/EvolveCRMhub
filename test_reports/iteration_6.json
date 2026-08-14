@@ -1,0 +1,26 @@
+{
+  "summary": "Attempted to reproduce user-reported 'NEW RFP HAD A REQUEST CODE ERROR 404'. Ran extensive backend + frontend network-instrumented tests: curl on all 10 documented endpoints (reference, rfps GET/POST, next-ref, stats, preview, settings formula GET/PUT/reset, /rfps/{unknown}), and Playwright E2E covering (A) All-RFPs -> +New RFP save, (B) RFP-Tracker tab-form direct save, (C) multi-geo save including unknown geographies (Japan/Germany + per-country universes), (D) proposal view, (E) edit-open + update, (F) delete, (G) Admin tab load & PUT country_rates + reset. Every request returned 200 OK. The only 404 observed was the expected GET /api/rfps/<invalid-id>. Bug is UNABLE TO REPRODUCE in current build.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_rfp_iter5.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "USER-REPORTED 404 could NOT be reproduced. Recommend asking the user for: (a) browser DevTools Network panel screenshot showing the failing request URL/method/status, (b) exact steps + which button they clicked, (c) whether they see 'Save failed' text or a browser error, (d) their browser + whether hard-refresh (Ctrl+Shift+R) clears it. Most likely causes: stale cached JS bundle from an earlier deploy that referenced a since-removed route, or a preview-URL cold-start blip. Consider adding a build-hash query param or client-side error toast that surfaces the exact URL + status when createRfp() rejects (currently only response.data.detail or e.message is shown).",
+    "Refresh backend regression tests: /app/backend/tests/test_rfp_iter5.py is stale vs iter6 schema — LEAD_TYPES now includes WEBINAR REGISTRATIONS/ATTENDEES + LIVE EVENT REGISTRATIONS/ATTENDEES, and country-attainability math changed grand_total_leads/cost values. 7/22 tests fail due to expected-value drift, NOT product defects (test_create_persists_with_tv_no_data_counts hard-codes 1577/33850/21.46; auto-suggest expectations changed; stats lt_keys check missing new lead types; test_delete/test_get_roundtrip cascade-fail because created_id is None)."
+  ],
+  "critical_code_review_comments": [
+    "RFPForm.jsx handleSave surfaces e?.response?.data?.detail || e.message — for a raw 404 axios throws with message 'Request failed with status code 404' but never includes the URL. Consider capturing e.config.url + e.response.status in the error state so users can screenshot the exact failing endpoint (this would have let us diagnose the user's report on iteration 1).",
+    "apiClient.js has no response interceptor; a global one that logs status+url to console (and optionally toasts) would greatly aid future 4xx/5xx forensics.",
+    "Route ordering in server.py is safe: /api/rfps/next-ref (L709) and /api/rfps/stats (L759) are registered before /api/rfps/{rfp_id} (L996), so no accidental path-parameter shadowing."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (all 10 endpoints 200)", "frontend": "100% (0 4xx/5xx across 7 flows)"},
+  "test_credentials": "N/A (no auth)",
+  "seed_data_creation": "Created TEST_ScenA, TEST_ScenB, TEST_404_repro RFPs and deleted them in the same session. DB left clean.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Bug 'NEW RFP HAD A REQUEST CODE ERROR 404' could not be reproduced in preview URL https://app-from-specs-9.preview.emergentagent.com as of 2026-07. All create/update/delete/preview/reference/formula endpoints return 200. If user re-reports, first ask for a Network-panel screenshot. Also note: test_rfp_iter5.py is outdated for the current iter6 schema (new webinar/live-event lead types + country attainability); those 7 pytest failures are expected-value drift, not defects.",
+  "rca_of_the_issue": "Unable to reproduce. Backend routes are all healthy and correctly ordered. Frontend axios paths in apiClient.js all resolve to real registered endpoints. Most probable RCA is a stale JS bundle from a prior deployment cached in the user's browser (service worker or long TTL) pointing to a route path that has since been renamed/removed — a hard refresh would likely clear it. Recommend improving client-side error surfacing so the exact failing URL is visible to end users."
+}

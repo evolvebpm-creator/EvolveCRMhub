@@ -5,6 +5,21 @@ export const API = `${BACKEND_URL}/api`;
 
 export const api = axios.create({ baseURL: API });
 
+// Response interceptor — log the exact URL/method/status on every 4xx/5xx so
+// future user reports like "got a 404" carry a diagnosable footprint.
+api.interceptors.response.use(
+  (r) => r,
+  (err) => {
+    if (err?.response) {
+      const { status } = err.response;
+      const method = (err.config?.method || "?").toUpperCase();
+      const url = err.config?.baseURL ? `${err.config.baseURL}${err.config.url || ""}` : (err.config?.url || "?");
+      console.error(`[API ${status}] ${method} ${url}`, err.response.data);
+    }
+    return Promise.reject(err);
+  }
+);
+
 export const fetchReference = async () => (await api.get("/reference")).data;
 export const fetchRfps = async (params = {}) => (await api.get("/rfps", { params })).data;
 export const fetchRfp = async (id) => (await api.get(`/rfps/${id}`)).data;

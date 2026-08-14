@@ -124,7 +124,12 @@ export default function RFPForm({ reference, initialRfp = null, onSaved, onCance
         : await createRfp(rfp);
       onSaved && onSaved(saved);
     } catch (e) {
-      setError(e?.response?.data?.detail || e.message || "Save failed");
+      const status = e?.response?.status;
+      const method = (e?.config?.method || "").toUpperCase();
+      const url = `${e?.config?.baseURL || ""}${e?.config?.url || "?"}`;
+      const detail = e?.response?.data?.detail || e?.message || "Save failed";
+      // Surface the exact request footprint so ops can diagnose 4xx / 5xx / 404s.
+      setError(status ? `${status} · ${method} ${url} · ${detail}` : detail);
     } finally {
       setSaving(false);
     }
