@@ -3,7 +3,7 @@ import { fetchRfps, deleteRfp } from "../lib/apiClient";
 import { fmtNum, fmtCurrency } from "../lib/rfpUtils";
 import { Plus, Pencil, Trash2, Search, FileText } from "lucide-react";
 
-export default function RFPList({ onNew, onEdit, onProposal, refreshKey }) {
+export default function RFPList({ onNew, onEdit, onProposal, onDelete, refreshKey }) {
   const [rows, setRows] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
   const [filter, setFilter] = React.useState({ converted: "", search: "" });
@@ -22,8 +22,12 @@ export default function RFPList({ onNew, onEdit, onProposal, refreshKey }) {
   React.useEffect(() => { load(); }, [load, refreshKey]);
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Delete this RFP permanently?")) return;
-    await deleteRfp(id);
+    if (onDelete) {
+      await onDelete(id);
+    } else {
+      if (!window.confirm("Delete this RFP permanently?")) return;
+      await deleteRfp(id);
+    }
     load();
   };
 
@@ -34,7 +38,14 @@ export default function RFPList({ onNew, onEdit, onProposal, refreshKey }) {
           <div className="font-label">Registry</div>
           <h2 className="font-serif-display text-4xl md:text-5xl mt-1">All RFPs</h2>
         </div>
-        <button data-testid="new-rfp-button" className="btn-primary" onClick={onNew}>
+        <button
+          data-testid="new-rfp-button"
+          className="btn-primary"
+          onClick={onNew}
+          disabled={!onNew}
+          style={onNew ? undefined : { opacity: 0.4, cursor: "not-allowed" }}
+          title={onNew ? "Create a new RFP" : "View-only role — ask an admin for edit rights"}
+        >
           <Plus size={14} strokeWidth={1.5} className="inline mr-1" /> [ New RFP ]
         </button>
       </div>
@@ -122,16 +133,20 @@ export default function RFPList({ onNew, onEdit, onProposal, refreshKey }) {
                         title="Build client-facing proposal with 2 variations"
                         onClick={() => onProposal && onProposal(r)}
                       ><FileText size={12} strokeWidth={1.5} /></button>
-                      <button
-                        data-testid={`edit-${r.id}`}
-                        className="btn-secondary"
-                        onClick={() => onEdit(r)}
-                      ><Pencil size={12} strokeWidth={1.5} /></button>
-                      <button
-                        data-testid={`delete-${r.id}`}
-                        className="btn-danger"
-                        onClick={() => handleDelete(r.id)}
-                      ><Trash2 size={12} strokeWidth={1.5} /></button>
+                      {onEdit && (
+                        <button
+                          data-testid={`edit-${r.id}`}
+                          className="btn-secondary"
+                          onClick={() => onEdit(r)}
+                        ><Pencil size={12} strokeWidth={1.5} /></button>
+                      )}
+                      {onDelete && (
+                        <button
+                          data-testid={`delete-${r.id}`}
+                          className="btn-danger"
+                          onClick={() => handleDelete(r.id)}
+                        ><Trash2 size={12} strokeWidth={1.5} /></button>
+                      )}
                     </div>
                   </td>
                 </tr>

@@ -1,83 +1,47 @@
 # RFP Master Tracking — PRD
 
-## Original problem statement
-Build an RFP Master Tracking app per attached spec (4 sections: Discovery, Data Universe, Lead Computation, Status). Iterative refinements from user chat.
+## Original Problem Statement
+Build an RFP Master Tracking App with a single form and auto-compute logic for lead-generation / sales operations. Auto-compute lead volumes based on Data Universe, Campaign Types, Data Sources, and business modifiers (TAL, CQ, QQ, TV). Generate client-facing, branded PDF proposals comparing 3 variations.
 
-## User choices
-- Single form, single-tenant, no auth
-- Auto-compute Sections 2 & 3
-- CSV + Excel export + Dashboard with charts
-- Design chosen by design agent → "Editorial Terminal / Old Money Tech" (Cormorant Garamond + IBM Plex Mono)
+## Core Requirements Delivered
+- Single-tenant RFP Master Tracking with dynamic Section 3 auto-compute (stacked formula: Universe × Source% × Country% ÷ CPC × (1−CQ)(1−QQ)(1−TV)).
+- Section 00 (TAL vs Whitespace) + Section 01 (Discovery) + Section 02 (Data Universe, per-country) + Section 03 (Deliverables) + Section 04 (Submission).
+- Per-country universe input when >1 geography is selected — Section 3 breakdown table shows Leads · CPL · Cost per country per lead type in both the Tracker and the Proposal PDF.
+- Per-country CPL override (grid) with fallback to row default; `•` marker on overrides in the proposal table.
+- Country attainability multiplier — pre-seeded 40+ geographies; admin-editable table + "add country" prompt + missing-country warning banner on the Tracker & Proposal.
+- Admin panel (formula, conversion matrix, CPC/CQ/QQ/TV modifiers, country attainability rates, user management) accessible only to `admin` role.
+- Proposal View — 3 variants (A/B/C), demographic overrides, "Changes vs Option A" delta block on B/C, modifiers strip on every card, per-country lead-allocation table, snapshot to PNG + copy to clipboard + print/PDF, preset client logos (Encore, LeadScale, B2BMG, BR) + custom upload.
+- Data-source display converted to 3-letter codes (VBP / PRO / APO / OTH) — DB keys unchanged, no migration.
+- Job Titles input is comma-separated.
+- Auth + RBAC — JWT (httpOnly cookies), roles viewer/editor/admin, admin-invite-only registration, seeded bootstrap admin, brute-force lockout (X-Forwarded-For based, TTL-purged), change-password flow, must-change-pw banner on first login.
+
+## Roles
+| Role | Access |
+|------|--------|
+| viewer | Dashboard, All RFPs, Proposal view — read-only. |
+| editor | Everything above + create/edit/delete RFPs (RFP Tracker tab). |
+| admin  | Everything above + Admin tab (formula, country rates, user management). |
+
+## Bootstrap
+- `.env`: `ADMIN_EMAIL=admin@evolvebpm.com`, `ADMIN_PASSWORD=EvolveBPM@2026`, `JWT_SECRET`, `FRONTEND_URL`. See `/app/memory/test_credentials.md`.
+
+## Backlog (P1/P2)
+- P1: TAL CSV Import on Section 00 (auto-compute match %).
+- P1: Recommended-variation ribbon on Proposal.
+- P2: Country Groups Editor (ANZ = AU+NZ etc, auto-derive %).
+- P2: Bulk country-rate CSV import in Admin.
+- P2: Admin audit log for formula/user changes.
+- P3: Currency toggle on Proposal (USD/EUR/GBP with live FX).
+- P3: Password reset via email (currently admin resets on user's behalf).
 
 ## Architecture
-- **Backend**: FastAPI + Motor + MongoDB (collection `rfps`). Endpoints under `/api/`. All computation server-side; UI previews via debounced `POST /api/rfps/preview`.
-- **Frontend**: React 19 + Tailwind + Recharts.
-- **Tabs**: `[01 / Dashboard]`, `[02 / RFP Tracker]`, `[03 / All RFPs]`.
+- Backend: FastAPI + Motor (async MongoDB). Auth in `/app/backend/auth.py`; core RFP math + endpoints in `/app/backend/server.py`. Formula settings persisted in `db.settings`. Users in `db.users`. Login attempts in `db.login_attempts` (TTL 24h).
+- Frontend: React 19 + Tailwind + shadcn. AuthContext gates the entire shell; login/logout flows through httpOnly cookies + `withCredentials: true`. All API errors surface `[API <status>] <METHOD> <full-url>` in console + enriched inline banner.
 
-## Section 3 lead-volume formula (current, iter 5)
+## Test Coverage
+- Backend: 30/30 pytests pass (auth, RBAC, RFP CRUD, formula, country rates, brute-force lockout). See `/app/backend/tests/backend_test.py`.
+- Frontend: RBAC end-to-end verified via testing agent iterations 8 & 9.
 
-For each ACTIVE lead-type row (a row matching the Campaign Types selected in Section 1):
-
-```
-base   = Data Universe  ×  Conversion% [source][lead_type] / 100
-÷ CPC  = base  /  CPC_DIVISORS[contacts_per_company]
-× CQ   = value ×  (1 − CQ_REDUCTIONS[num_cq])
-× QQ   = value ×  (1 − QQ_REDUCTIONS[num_qq])
-× TV   = value ×  (1 − 0.10)  if with_tv else value
-lead_counts = round(value, 0)
-total_cost  = round(cpl × lead_counts, 2)
-```
-
-### Conversion-rate matrix (% of Data Universe)
-
-| Lead Type | VibeProspect | Prospeo | Apollo | Others |
-|---|---:|---:|---:|---:|
-| MQL | 45 | 35 | 25 | 15 |
-| HQL | 25 | 20 | 15 | 10 |
-| BANT - DIGITAL | 15 | 10 | 10 | 5 |
-| BANT - TELE | 10 | 8 | 5 | 3 |
-| BANT + | 7.5 | 5 | 3 | 2 |
-| APPOINTMENT SET-UP | 5 | 3 | 2 | 1 |
-
-### Modifier tables
-- **CPC divisors** (contacts per company → divide by): 1→5, 2→3, 3→2, 4→1.5, 5→1.25
-- **CQ reductions** (num_cq → subtract): 1→15%, 2→25%, 3→35%, 4→45%, 5→50%
-- **QQ reductions** (num_qq → subtract): 1→25%, 2→35%, 3→45%, 4→50%, 5→60%
-- **With TV**: subtract 10%
-
-### Campaign-Type → Lead-Type mapping
-- MQL / MQL with CQ / MQL with QQ / Single / Double / Multi touch → `MQL`
-- HQL → `HQL`
-- BANT - Digital → `BANT - DIGITAL`
-- BANT - Tele → `BANT - TELE`
-- BANT + → `BANT +`
-- Appointment Set-up → `APPOINTMENT SET-UP`
-- Social Media Spend / unknown → none
-
-## Endpoints
-- `GET /api/reference` — dropdowns + conversion matrix + modifier tables.
-- `POST /api/rfps`, `GET /api/rfps`, `GET /api/rfps/{id}`, `PUT /api/rfps/{id}`, `DELETE /api/rfps/{id}`.
-- `POST /api/rfps/preview` — recompute Sections 2 & 3 without persisting.
-- `GET /api/rfps/next-ref[?date_of_rfp=…]` — sequential auto-ref preview.
-- `GET /api/rfps/stats`, `GET /api/rfps/export/csv`, `GET /api/rfps/export/xlsx`.
-
-## Iteration log
-- **Iter 1**: 4-section RFP form, filter-based Data Universe, list, dashboard, CSV/XLSX export.
-- **Iter 2**: Data Source + Data Counts in Section 3; per-source conversion matrix; race-safe preview merge.
-- **Iter 3**: Job Titles paste textarea; Type of Campaign multi-select; Section 3 CPC removed → CPL is direct input; only campaign-type-matching rows compute leads.
-- **Iter 4**: Auto-generated Master Ref `EV_Q_{NNN}_{YYYYMMDD}`; Job Seniority separate multi-select.
-- **Iter 5**: NEW lead-type list (6 rows), NEW sources (VibeProspect/Prospeo/Apollo/Others), NEW conversion matrix based on Data Universe, Data Counts removed, Data Universe editable, stacked CPC/CQ/QQ/TV modifiers.
-- **Iter 6 (current)**: Client-facing **Proposal view** launchable from the RFP list. Two side-by-side variations (Option A / Option B) with individually editable demographics — geography, industries, revenue, employee band, job functions, seniority, titles, contacts-per-company, CQ/QQ/TV, campaign types, data source, data universe, CPL per lead type. Each variant lives-recomputes via `/api/rfps/preview`. Side-by-side comparison table with Δ (B−A). Print-ready (CSS `@media print` hides toolbars and editor drawers). Screen shows editor drawers on demand.
-- **Deployed**: `https://app-from-specs-9.emergent.host`.
-- **Testing**: 22/22 backend pytest + full Playwright E2E pass (`/app/test_reports/iteration_5.json`).
-
-## Backlog
-- P1: Validate `end_date ≥ start_date`.
-- P1: PDF export of single RFP detail.
-- P2: Bulk XLSX import; RFP-vs-RFP compare.
-- P2: Per-RFP override of conversion-rate matrix (currently global).
-- P2: Atomic sequence counter for `next_seq_num()` (currently `count_documents+1`).
-- P2: Auth (JWT / Emergent Google) if multi-tenant needed.
-
-## Suggested enhancement
-"Scenario Simulator" — a side panel where sales-ops can nudge CPC / CQ / QQ / TV / source sliders without editing the RFP, and instantly see the impact on lead counts and total cost, so quotes can be tuned live during a client call.
+## Changelog
+- 2026-02: Initial MVP with math, form, dashboard, proposal.
+- 2026-08 (this session): country attainability, per-country CPL override, per-country lead breakdown on Tracker, 3-letter source codes, comma-separated job titles, PNG snapshot + preset logos, Admin panel (formula + country + users), JWT auth + RBAC, brute-force lockout with XFF-based identifier.

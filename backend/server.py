@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Query, Depends
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -18,12 +18,24 @@ from openpyxl.styles import Font, PatternFill, Alignment
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
+from auth import (  # noqa: E402
+    build_auth_router,
+    bootstrap_indexes_and_admin,
+    require_user_dep,
+    require_role_dep,
+)
+
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ["DB_NAME"]]
 
 app = FastAPI(title="RFP Master Tracking API")
 api_router = APIRouter(prefix="/api")
+
+# Auth dependencies bound to this app's DB handle.
+require_user = require_user_dep(db)
+require_editor = require_role_dep(db, ("editor", "admin"))
+require_admin = require_role_dep(db, ("admin",))
 
 # ----------------------- Constants & Reference Data ----------------------- #
 
@@ -597,12 +609,12 @@ def _defaults_formula() -> dict:
 
 
 @api_router.get("/settings/formula")
-async def get_formula():
+async def get_formula(_user: dict = Depends(require_user)):
     return {"current": _current_formula(), "defaults": _defaults_formula()}
 
 
 @api_router.put("/settings/formula")
-async def update_formula(payload: FormulaConfig):
+async def update_formula(payload: FormulaConfig, _admin: dict = Depends(require_admin)):
     body = payload.model_dump(exclude_none=True)
     _apply_formula_overrides(body)
     await db.settings.update_one(
@@ -614,7 +626,7 @@ async def update_formula(payload: FormulaConfig):
 
 
 @api_router.post("/settings/formula/reset")
-async def reset_formula():
+async def reset_formula(_admin: dict = Depends(require_admin)):
     _apply_formula_overrides(_defaults_formula())
     await db.settings.delete_one({"id": SETTINGS_ID})
     return {"ok": True, "current": _current_formula()}
@@ -624,7 +636,7 @@ async def reset_formula():
 
 
 @api_router.get("/reference")
-async def get_reference():
+async def get_reference(_user: dict = Depends(require_user)):
     """Static reference data for UI dropdowns / multi-selects."""
     return {
         "client_id_range": {"prefix": "EVCL", "start": 1, "end": 100},
@@ -707,7 +719,10 @@ async def next_seq_num() -> int:
 
 
 @api_router.get("/rfps/next-ref")
-async def get_next_ref(date_of_rfp: Optional[str] = Query(default=None)):
+async def get_next_ref(
+    date_of_rfp: Optional[str] = Query(default=None),
+    _user: dict = Depends(require_user),
+):
     seq = await next_seq_num()
     return {
         "seq": seq,
@@ -722,7 +737,7 @@ async def root():
 
 
 @api_router.post("/rfps", response_model=RFP)
-async def create_rfp(payload: RFPCreate):
+async def create_rfp(payload: RFPCreate, _user: dict = Depends(require_editor)):
     # Always auto-populate the Master Tracking Sheet Ref on create.
     seq = await next_seq_num()
     payload.section1.rfp_master_tracking_sheet = format_master_ref(
@@ -739,6 +754,7 @@ async def list_rfps(
     converted: Optional[str] = Query(default=None),
     client_id: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
+    _user: dict = Depends(require_user),
 ):
     query: Dict[str, Any] = {}
     if converted in ("Y", "N"):
@@ -757,7 +773,7 @@ async def list_rfps(
 
 
 @api_router.get("/rfps/stats")
-async def get_stats():
+async def get_stats(_user: dict = Depends(require_user)):
     docs = await db.rfps.find({}, {"_id": 0}).to_list(2000)
     total = len(docs)
     converted = sum(1 for d in docs if (d.get("section4") or {}).get("rfp_converted") == "Y")
@@ -911,7 +927,7 @@ def _flat_row(d: dict) -> dict:
 
 
 @api_router.get("/rfps/export/csv")
-async def export_csv():
+async def export_csv(_user: dict = Depends(require_user)):
     docs = await db.rfps.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000)
     rows = [_flat_row(d) for d in docs]
     buf = io.StringIO()
@@ -930,7 +946,7 @@ async def export_csv():
 
 
 @api_router.get("/rfps/export/xlsx")
-async def export_xlsx():
+async def export_xlsx(_user: dict = Depends(require_user)):
     docs = await db.rfps.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000)
     wb = openpyxl.Workbook()
 
@@ -994,7 +1010,7 @@ async def export_xlsx():
 
 
 @api_router.get("/rfps/{rfp_id}")
-async def get_rfp(rfp_id: str):
+async def get_rfp(rfp_id: str, _user: dict = Depends(require_user)):
     doc = await db.rfps.find_one({"id": rfp_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="RFP not found")
@@ -1002,7 +1018,9 @@ async def get_rfp(rfp_id: str):
 
 
 @api_router.put("/rfps/{rfp_id}", response_model=RFP)
-async def update_rfp(rfp_id: str, payload: RFPUpdate):
+async def update_rfp(
+    rfp_id: str, payload: RFPUpdate, _user: dict = Depends(require_editor),
+):
     existing = await db.rfps.find_one({"id": rfp_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="RFP not found")
@@ -1033,7 +1051,7 @@ async def update_rfp(rfp_id: str, payload: RFPUpdate):
 
 
 @api_router.delete("/rfps/{rfp_id}")
-async def delete_rfp(rfp_id: str):
+async def delete_rfp(rfp_id: str, _user: dict = Depends(require_editor)):
     res = await db.rfps.delete_one({"id": rfp_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="RFP not found")
@@ -1041,7 +1059,7 @@ async def delete_rfp(rfp_id: str):
 
 
 @api_router.post("/rfps/preview")
-async def preview_compute(payload: RFPCreate):
+async def preview_compute(payload: RFPCreate, _user: dict = Depends(require_user)):
     """Auto-compute Section 2 + Section 3 without saving. Used by the UI."""
     payload = apply_compute(payload)
     return {
@@ -1052,12 +1070,20 @@ async def preview_compute(payload: RFPCreate):
 
 # ----------------------- App wiring ----------------------- #
 
+# Auth + user management router mounted on the same /api prefix.
+api_router.include_router(build_auth_router(db, require_user, require_admin))
+
 app.include_router(api_router)
 
+# CORS: credentials + explicit origin (browsers reject "*" with credentials).
+_frontend_origin = (os.environ.get("FRONTEND_URL") or "").strip()
+_extra_cors = [o.strip() for o in (os.environ.get("CORS_ORIGINS") or "").split(",") if o.strip() and o.strip() != "*"]
+_allow_origins = [o for o in ([_frontend_origin] + _extra_cors) if o]
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
+    allow_origins=_allow_origins or [_frontend_origin],
+    allow_origin_regex=r"https://.*\.preview\.emergentagent\.com" if not _allow_origins else None,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1075,6 +1101,11 @@ async def _startup_load_settings():
         await _load_settings_on_start()
     except Exception as e:
         logger.warning(f"Failed to load formula settings on startup: {e}")
+    try:
+        await bootstrap_indexes_and_admin(db)
+        logger.info("Auth bootstrap complete: indexes ensured, admin seeded.")
+    except Exception as e:
+        logger.warning(f"Auth bootstrap failed: {e}")
 
 
 @app.on_event("shutdown")

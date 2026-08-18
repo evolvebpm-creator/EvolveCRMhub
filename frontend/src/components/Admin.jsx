@@ -1,6 +1,7 @@
 import React from "react";
 import { fetchFormula, updateFormula, resetFormula } from "../lib/apiClient";
 import { RotateCcw, Save } from "lucide-react";
+import UserManagement from "./UserManagement";
 
 const LEAD_TYPES_ORDER = [
   "MQL", "HQL", "BANT - DIGITAL", "BANT - TELE", "BANT +",
@@ -384,6 +385,9 @@ export default function Admin({ onSaved }) {
           </table>
         </section>
       </div>
+
+      {/* User Management */}
+      <UserManagement />
     </div>
   );
 }

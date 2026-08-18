@@ -1,0 +1,32 @@
+{
+  "summary": "Iter-9 targeted regression verifying the brute-force lockout fix (X-Forwarded-For based identifier + tz-aware locked_until normalization) in /app/backend/auth.py. Extended /app/backend/tests/backend_test.py's TestBruteForce class from 1 → 5 tests and re-ran the full suite behind pytest-xdist. Result: 30/30 pass in 10.43s. Fix confirmed on the preview URL (behind k8s ingress): (a) 7 consecutive wrong-password POSTs from a single browser IP produce codes [401,401,401,401,401,429,429] with the exact detail 'Too many failed attempts. Try again in 15 minutes.' and (b) db.login_attempts contains EXACTLY ONE record for that email (identifier no longer split across upstream ingress IPs), count>=5, locked_until set. Regressions: successful login on first attempt leaves no login_attempts row; successful login after 3 bad attempts clears the counter; backdated locked_until allows a subsequent good login (200); a NAIVE datetime locked_until now returns 429 (not TypeError-500). Auth + RBAC spot-check (auth/login 200, auth/me 200/401, viewer 403 on POST /api/rfps, editor 403 on PUT /api/settings/formula, admin list/create/delete users, cannot delete self, cannot demote last admin) all pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "auth.py login() still keys the lockout on `{client_ip}:{email}`. Two distinct attackers behind the SAME shared NAT/corporate egress will now share a counter and can lock out each other's target email; and any attacker who rotates X-Forwarded-For (trivial from an untrusted client — FastAPI/Starlette does not verify XFF authenticity) will bypass the lockout by faking the first hop. Consider (a) trusting XFF only via a configured proxies count / TrustedProxyMiddleware and (b) adding a parallel email-only counter with a lower threshold as a defense-in-depth.",
+    "auth.py login(): on a wrong-password attempt when the account is ALREADY beyond count>=5 but still inside the lockout window, we correctly 429 — but on the SAME condition we do NOT increment the counter, which is fine; however we ALSO never extend the lockout, so a persistent attacker can just wait 15min and get another 5 free tries. Consider an exponential backoff or extending locked_until on continued attempts during lockout.",
+    "bootstrap_indexes_and_admin(): db.login_attempts has NO TTL index (only a plain 'identifier' index). Stale/expired lockout docs will accumulate forever. Add `expireAfterSeconds` on `locked_until` or `last_attempt`."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "100% (30/30 pytests)", "frontend": "not tested (skip per request)"},
+  "seed_data_creation": "Test-scoped users TEST_viewer_*, TEST_editor_*, TEST_cp_*, TEST_crud_*, test_clear_*, test_expired_* — all deleted on teardown. Direct-Mongo cleanup of login_attempts for test_lockout_*, test_naive_*, test_clear_*, test_expired_*, and admin@evolvebpm.com identifiers.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "Admin: admin@evolvebpm.com / EvolveBPM@2026",
+  "context_for_next_testing_agent": "Brute-force lockout is now fixed and verified end-to-end. TestBruteForce covers: 7-attempt lockout+single DB record, first-attempt-success no counter, success clears counter, expired lockout window, naive datetime regression. No further re-testing needed on this feature. Open code-review items are hardening suggestions only, not blockers.",
+  "rca_of_the_issue": "Original iter-8 bug: identifier built as `f\"{request.client.host}:{email}\"` where request.client.host was the k8s ingress upstream IP (rotating across 10.79.x pods), so counters split and never reached 5. Iter-9 fix: read the first entry of the X-Forwarded-For header (falling back to request.client.host) so all requests from the same external browser IP aggregate under one identifier. Additionally, locked_until returned by motor as a naive datetime is now normalized to tz-aware UTC before comparing against datetime.now(timezone.utc), preventing the latent TypeError-500 the original review flagged. Verified: with 7 wrong-password POSTs from a single external IP the identifier stays constant and produces exactly one db.login_attempts document with count=5 and 429 responses from attempt 6 onward."
+}

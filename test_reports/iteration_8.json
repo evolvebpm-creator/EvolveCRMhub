@@ -1,0 +1,47 @@
+{
+  "summary": "Iter-8 end-to-end verification of the new JWT auth + user management + RBAC layer. Backend: 25/26 pytests pass (auth/me 401, admin login+me 200, invalid-creds 401, logout clears session, change-password with wrong/right current, admin list/create/update/delete users, duplicate 409, admin cannot delete self (400), admin cannot demote last admin (400), viewer POST /api/rfps 403, viewer/editor GET /api/users 403, editor PUT /api/settings/formula 403, editor CRUD RFP 200, and all pre-existing endpoints (/api/reference, /api/rfps, /api/rfps/next-ref, /api/rfps/stats, /api/rfps/preview) require auth (401) yet return 200 when authenticated). Only failing test: brute-force lockout is NOT triggered under real preview traffic — root-caused below. Frontend: unauth root redirects to login-page, invalid-cred error banner shows 'Invalid email or password', admin login lands on tabs (dashboard/form/list/admin), must-change-pw-banner visible, admin-user-panel renders, invite flow persists rows (verified via successful delete-by-email), logout returns to login, viewer session only sees dashboard+list tabs (no tab-form, no tab-admin, no edit/delete/proposal row buttons, no new-rfp-button visible), editor sees dashboard+form+list but no tab-admin. Test users created + cleaned up afterwards.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/auth/login",
+        "issue": "Brute-force lockout never fires in the preview/production environment. Identifier is built as `f\"{request.client.host}:{email}\"` — but behind the k8s ingress, `request.client.host` is the ingress upstream IP which varies per request (observed IPs 10.79.138.2 and 10.79.139.8 in db.login_attempts for the same email). Counters split across multiple upstream IPs and never reach the threshold of 5, so no HTTP 429 is ever returned. Reproduced with 7 consecutive wrong-password POSTs from the same external client (all returned 401, counters split 4/3 across two identifiers). FIX: derive the client IP from X-Forwarded-For (first entry) and/or key the identifier ONLY on the email (or email + hashed UA) rather than including the upstream IP. Consider adding a global per-email attempt window in addition to per-IP.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "All RFPs (viewer role)",
+        "issues": ["Spec requested `[data-testid=new-rfp-button]` to be rendered but DISABLED for viewers; implementation hides the button entirely. Functional intent (viewer cannot create) is met, but this diverges from the requested affordance. Minor — non-blocking."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix brute-force lockout: switch the identifier away from request.client.host (use X-Forwarded-For first hop and/or key by email only) so counters aggregate correctly behind k8s ingress. Verified reproducible: db.login_attempts shows the same email split across two upstream IPs.",
+    "OPTIONAL (spec alignment): render `new-rfp-button` for viewers in a disabled state instead of hiding it, if the spec's exact affordance matters. Otherwise the current hide-based approach is fine."
+  ],
+  "critical_code_review_comments": [
+    "auth.py login(): the lockout check reads `attempts.get('locked_until')` (naive datetime returned by motor) and compares against `datetime.now(timezone.utc)` (tz-aware). If the identifier ever DID accrue 5+ hits, this comparison would raise TypeError inside the endpoint and be re-raised as HTTP 500. Recommend storing lockouts as ISO strings or configuring motor with tz_aware=True.",
+    "auth.py bootstrap_indexes_and_admin() only re-seeds when the plain admin password fails verify_password. If ADMIN_PASSWORD is rotated after the admin has already changed their own password, the auto-rotation on next boot will silently reset their password back to the .env value. Consider gating the reset on an explicit `must_bootstrap` flag or ADMIN_FORCE_RESET env var.",
+    "server.py apply_compute(): `by_country = rfp_in.section2.universe_by_country or {}` — when the caller passes an empty dict, we now overwrite data_universe to 0 even if the user had a valid manual value. Confirm this is intentional post-refactor.",
+    "auth.py update_user() applies password reset via `must_change_password: True` — but there's no endpoint or UI hook here that surfaces `user-reset-*` triggering that flow specifically; the admin panel already has a Reset PW affordance, please confirm it hits PUT /api/users/{id} with `{password: ...}`."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "96% (25/26 pytests; only brute-force lockout failing)", "frontend": "100% (all critical auth + RBAC flows pass)"},
+  "seed_data_creation": "Created + auto-cleaned viewer/editor test users during backend test class teardown. UI-flow created TEST_viewer_1787070617@evolvebpm.com + TEST_editor_1787070617@evolvebpm.com and deleted them via the admin panel; DB left clean. Also left transient TEST_lockout_* + TEST_cp_* login_attempt records that will TTL-expire (no ill effect).",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "Admin: admin@evolvebpm.com / EvolveBPM@2026 (from /app/memory/test_credentials.md). Test users are created/deleted per test run.",
+  "context_for_next_testing_agent": "Auth stack works end-to-end. Only outstanding issue is the brute-force lockout being defeated by variable upstream IPs behind the k8s ingress (see backend_issues.critical). When the developer fixes that, re-run tests/backend_test.py::TestBruteForce::test_lockout_after_5_bad_attempts. Frontend RBAC / login / logout / invite / delete flows are all healthy; do not re-verify unless auth code changes.",
+  "rca_of_the_issue": "Root cause of the brute-force lockout failure: `_load_current_user` is not involved; the /auth/login handler builds a per-attempt lockout key as `identifier = f\"{request.client.host}:{email}\"`. In this preview cluster, requests from the SAME external browser IP are proxied to uvicorn via multiple ingress worker pods, so `request.client.host` alternates between at least two internal 10.79.x IPs. MongoDB record snapshot after 7 wrong-password attempts: {identifier: '10.79.138.2:noone@…', count: 4} and {identifier: '10.79.139.8:noone@…', count: 3} — neither reaches the 5-attempt threshold. Fix by keying the identifier on X-Forwarded-For (first entry) and/or email alone. Reproduction: `for i in {1..7}; do curl -s -o /dev/null -w \"%{http_code}\\n\" -X POST $URL/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"x@evolvebpm.com\",\"password\":\"wrong\"}'; done` — all 7 return 401 (never 429)."
+}
