@@ -83,6 +83,9 @@ const setDeep = (obj, path, value) => {
 export default function Proposal({ rfp, reference, onBack }) {
   const [clientLogo, setClientLogo] = React.useState(rfp?.section1?.client_logo || "");
   const [capturing, setCapturing] = React.useState(false);
+  // Option A is always included. B and C are opt-in per user.
+  const [includeB, setIncludeB] = React.useState(true);
+  const [includeC, setIncludeC] = React.useState(true);
   const proposalRef = React.useRef(null);
 
   const handleLogoUpload = (e) => {
@@ -217,14 +220,43 @@ export default function Proposal({ rfp, reference, onBack }) {
         <div>
           <div className="font-label">Client Deliverable</div>
           <h2 className="font-serif-display text-4xl md:text-5xl mt-1">RFP Response · Proposal</h2>
-          <div className="font-mono-tight text-xs text-[#666] mt-2">
-            Two variations · edit demographics on the right of each option to reshape lead volumes.
+          <div className="font-mono-tight text-xs text-[#666] mt-2" data-testid="proposal-subtitle">
+            {(() => {
+              const count = 1 + (includeB ? 1 : 0) + (includeC ? 1 : 0);
+              const label = count === 1 ? "One variation" : count === 2 ? "Two variations" : "Three variations";
+              return `${label} · edit demographics on the right of each option to reshape lead volumes.`;
+            })()}
           </div>
         </div>
         <div className="flex flex-wrap gap-3">
           <button data-testid="proposal-back-button" className="btn-secondary" onClick={onBack}>
             ← Back to list
           </button>
+          <div
+            data-testid="proposal-include-toggles"
+            className="flex items-center gap-2 border border-[#DCDCCF] bg-[#FAFAF5] px-3 py-1 no-print"
+          >
+            <span className="font-label" style={{ letterSpacing: "0.08em" }}>Include</span>
+            <span className="chip" title="Option A is always included" style={{ fontSize: "0.6rem", padding: "0.15rem 0.5rem" }}>A</span>
+            <label className="flex items-center gap-1 font-mono-tight text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                data-testid="proposal-include-b"
+                checked={includeB}
+                onChange={(e) => setIncludeB(e.target.checked)}
+              />
+              B
+            </label>
+            <label className="flex items-center gap-1 font-mono-tight text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                data-testid="proposal-include-c"
+                checked={includeC}
+                onChange={(e) => setIncludeC(e.target.checked)}
+              />
+              C
+            </label>
+          </div>
           <button
             data-testid="proposal-snapshot-download"
             className="btn-secondary"
@@ -379,14 +411,24 @@ export default function Proposal({ rfp, reference, onBack }) {
 
         <div className="mt-8 pt-6 border-t border-[#DCDCCF]">
           <div className="font-label">Executive Summary</div>
-          <p className="font-serif-display italic text-lg leading-snug mt-2 max-w-3xl">
-            We are pleased to propose the following three options for this campaign. Option A represents the tightest interpretation of the brief, Option B expands the target parameters to deliver higher volumes, and Option C offers premium scale for maximum reach. All three are calibrated against the same conversion matrix and quality bar.
+          <p className="font-serif-display italic text-lg leading-snug mt-2 max-w-3xl" data-testid="proposal-exec-summary">
+            {(() => {
+              const count = 1 + (includeB ? 1 : 0) + (includeC ? 1 : 0);
+              if (count === 1) return "We are pleased to propose the following option for this campaign. Option A represents our recommended interpretation of the brief, calibrated against our full conversion matrix and quality bar.";
+              if (count === 2 && includeB) return "We are pleased to propose the following two options for this campaign. Option A represents the tightest interpretation of the brief, and Option B expands the target parameters to deliver higher volumes. Both are calibrated against the same conversion matrix and quality bar.";
+              if (count === 2 && includeC) return "We are pleased to propose the following two options for this campaign. Option A represents the tightest interpretation of the brief, and Option C offers premium scale for maximum reach. Both are calibrated against the same conversion matrix and quality bar.";
+              return "We are pleased to propose the following three options for this campaign. Option A represents the tightest interpretation of the brief, Option B expands the target parameters to deliver higher volumes, and Option C offers premium scale for maximum reach. All three are calibrated against the same conversion matrix and quality bar.";
+            })()}
           </p>
         </div>
       </div>
 
-      {/* Options grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Options grid — width adapts to how many are included */}
+      <div
+        className={`grid grid-cols-1 gap-6 ${
+          (includeB && includeC) ? "lg:grid-cols-3" : ((includeB || includeC) ? "lg:grid-cols-2" : "lg:grid-cols-1")
+        }`}
+      >
         <VariantCard
           testId="variant-a"
           variant={variantA}
@@ -396,34 +438,40 @@ export default function Proposal({ rfp, reference, onBack }) {
           accent="black"
           isBaseline
         />
-        <VariantCard
-          testId="variant-b"
-          variant={variantB}
-          setVariant={setVariantB}
-          computed={computedB}
-          reference={ref}
-          accent="red"
-          baseline={variantA}
-        />
-        <VariantCard
-          testId="variant-c"
-          variant={variantC}
-          setVariant={setVariantC}
-          computed={computedC}
-          reference={ref}
-          accent="green"
-          baseline={variantA}
-        />
+        {includeB && (
+          <VariantCard
+            testId="variant-b"
+            variant={variantB}
+            setVariant={setVariantB}
+            computed={computedB}
+            reference={ref}
+            accent="red"
+            baseline={variantA}
+          />
+        )}
+        {includeC && (
+          <VariantCard
+            testId="variant-c"
+            variant={variantC}
+            setVariant={setVariantC}
+            computed={computedC}
+            reference={ref}
+            accent="green"
+            baseline={variantA}
+          />
+        )}
       </div>
 
-      {/* Side-by-side comparison */}
-      <ComparisonTable
-        variants={[
-          { label: variantA.__label, computed: computedA, testId: "variant-a" },
-          { label: variantB.__label, computed: computedB, testId: "variant-b" },
-          { label: variantC.__label, computed: computedC, testId: "variant-c" },
-        ]}
-      />
+      {/* Side-by-side comparison — only show when >1 variant is included */}
+      {(includeB || includeC) && (
+        <ComparisonTable
+          variants={[
+            { label: variantA.__label, computed: computedA, testId: "variant-a" },
+            includeB && { label: variantB.__label, computed: computedB, testId: "variant-b" },
+            includeC && { label: variantC.__label, computed: computedC, testId: "variant-c" },
+          ].filter(Boolean)}
+        />
+      )}
 
       {/* Terms footer */}
       <div className="panel p-8">
