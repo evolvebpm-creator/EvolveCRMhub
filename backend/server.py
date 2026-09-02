@@ -149,6 +149,29 @@ COUNTRY_RATES: Dict[str, float] = {
     "Asia Pacific": 65, "Africa": 50, "Oceania": 75,
 }
 
+# Country GROUPS map a region name -> list of member countries. When a group has
+# members, its attainability is auto-derived as the average of member country %s
+# (falling back to COUNTRY_RATES[group] when the group has no members).
+COUNTRY_GROUPS: Dict[str, List[str]] = {
+    "ANZ": ["Australia", "New Zealand"],
+    "APAC": ["India", "Singapore", "Japan", "China", "Australia", "New Zealand"],
+    "LATAM": ["Mexico", "Brazil", "Argentina"],
+    "Middle East": ["UAE", "Saudi Arabia", "Israel"],
+    "Europe - all countries as per linkedin": [
+        "United Kingdom", "Germany", "France", "Italy", "Spain",
+        "Netherlands", "Sweden", "Switzerland",
+    ],
+    "Europe": [
+        "United Kingdom", "Germany", "France", "Italy", "Spain",
+        "Netherlands", "Sweden", "Switzerland",
+    ],
+    "North America": ["United States", "Canada", "Mexico"],
+    "South America": ["Brazil", "Argentina"],
+    "Africa": ["South Africa", "Nigeria", "Kenya", "Egypt"],
+    "Oceania": ["Australia", "New Zealand"],
+    "Asia Pacific": ["India", "Singapore", "Japan", "China", "Australia", "New Zealand"],
+}
+
 # Snapshot of the ORIGINAL hardcoded defaults so the admin panel can reset.
 _DEFAULT_CONVERSION_RATES = {k: dict(v) for k, v in CONVERSION_RATES.items()}
 _DEFAULT_CPC_DIVISORS = dict(CPC_DIVISORS)
@@ -156,6 +179,19 @@ _DEFAULT_CQ_REDUCTIONS = dict(CQ_REDUCTIONS)
 _DEFAULT_QQ_REDUCTIONS = dict(QQ_REDUCTIONS)
 _DEFAULT_TV_REDUCTION = TV_REDUCTION
 _DEFAULT_COUNTRY_RATES = dict(COUNTRY_RATES)
+_DEFAULT_COUNTRY_GROUPS = {k: list(v) for k, v in COUNTRY_GROUPS.items()}
+
+
+def resolve_country_pct(name: str) -> float:
+    """Attainability % for a geography. If it's a group with members, return the
+    average of member %s (skipping members missing from the rates table); else
+    fall back to COUNTRY_RATES[name] or 100 (no reduction)."""
+    members = COUNTRY_GROUPS.get(name) or []
+    if members:
+        vals = [float(COUNTRY_RATES[m]) for m in members if m in COUNTRY_RATES]
+        if vals:
+            return sum(vals) / len(vals)
+    return float(COUNTRY_RATES.get(name, 100.0))
 
 
 def _apply_formula_overrides(cfg: dict) -> None:
@@ -185,6 +221,10 @@ def _apply_formula_overrides(cfg: dict) -> None:
         COUNTRY_RATES.clear()
         for k, v in cfg["country_rates"].items():
             COUNTRY_RATES[str(k)] = float(v)
+    if "country_groups" in cfg and isinstance(cfg["country_groups"], dict):
+        COUNTRY_GROUPS.clear()
+        for k, v in cfg["country_groups"].items():
+            COUNTRY_GROUPS[str(k)] = [str(m) for m in (v or [])]
 
 # Per-source conversion rates block is defined above; nothing to add here.
 
@@ -418,8 +458,9 @@ def compute_section3(
         pct = float(rate_map.get(lead_type, 0))
         base = univ * pct / 100.0
         # Country attainability multiplier (default 100% if country not in table).
+        # For a group with members, the % is the AVERAGE of member country %s.
         if country:
-            country_pct = float(COUNTRY_RATES.get(country, 100.0))
+            country_pct = resolve_country_pct(country)
             base = base * (country_pct / 100.0)
         leads = base / cpc_divisor
         if lead_type == "MQL":
@@ -584,6 +625,7 @@ class FormulaConfig(BaseModel):
     qq_reductions: Optional[Dict[str, float]] = None
     tv_reduction: Optional[float] = None
     country_rates: Optional[Dict[str, float]] = None
+    country_groups: Optional[Dict[str, List[str]]] = None
 
 
 def _current_formula() -> dict:
@@ -594,6 +636,7 @@ def _current_formula() -> dict:
         "qq_reductions": {str(k): v for k, v in QQ_REDUCTIONS.items()},
         "tv_reduction": TV_REDUCTION,
         "country_rates": dict(COUNTRY_RATES),
+        "country_groups": {k: list(v) for k, v in COUNTRY_GROUPS.items()},
     }
 
 
@@ -605,6 +648,7 @@ def _defaults_formula() -> dict:
         "qq_reductions": {str(k): v for k, v in _DEFAULT_QQ_REDUCTIONS.items()},
         "tv_reduction": _DEFAULT_TV_REDUCTION,
         "country_rates": dict(_DEFAULT_COUNTRY_RATES),
+        "country_groups": {k: list(v) for k, v in _DEFAULT_COUNTRY_GROUPS.items()},
     }
 
 
@@ -694,6 +738,7 @@ async def get_reference(_user: dict = Depends(require_user)):
         "source_codes": SOURCE_CODES,
         "conversion_rates": CONVERSION_RATES,
         "country_rates": dict(COUNTRY_RATES),
+        "country_groups": {k: list(v) for k, v in COUNTRY_GROUPS.items()},
         "cpc_divisors": CPC_DIVISORS,
         "cq_reductions": CQ_REDUCTIONS,
         "qq_reductions": QQ_REDUCTIONS,

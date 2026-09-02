@@ -74,6 +74,60 @@ export default function Admin({ onSaved }) {
     });
   };
 
+  // ---- Country groups ---- //
+  const addGroup = () => {
+    const name = (window.prompt("Enter group / region name (e.g. ANZ, EMEA):") || "").trim();
+    if (!name) return;
+    setConfig((c) => {
+      const next = clone(c);
+      next.country_groups = next.country_groups || {};
+      if (next.country_groups[name] === undefined) next.country_groups[name] = [];
+      // Also register in country_rates so the attainability table shows it.
+      next.country_rates = next.country_rates || {};
+      if (next.country_rates[name] === undefined) next.country_rates[name] = 0;
+      return next;
+    });
+  };
+  const removeGroup = (name) => {
+    if (!window.confirm(`Remove group "${name}"?`)) return;
+    setConfig((c) => {
+      const next = clone(c);
+      if (next.country_groups) delete next.country_groups[name];
+      return next;
+    });
+  };
+  const addMember = (groupName, member) => {
+    if (!member) return;
+    setConfig((c) => {
+      const next = clone(c);
+      next.country_groups = next.country_groups || {};
+      const list = next.country_groups[groupName] || [];
+      if (!list.includes(member)) list.push(member);
+      next.country_groups[groupName] = list;
+      return next;
+    });
+  };
+  const removeMember = (groupName, member) => {
+    setConfig((c) => {
+      const next = clone(c);
+      const list = (next.country_groups || {})[groupName] || [];
+      next.country_groups[groupName] = list.filter((m) => m !== member);
+      return next;
+    });
+  };
+
+  // Derived attainability % for a country/group (avg of members else raw %).
+  const derivedPct = (country) => {
+    const members = (config.country_groups || {})[country] || [];
+    if (members.length > 0) {
+      const vals = members
+        .map((m) => Number((config.country_rates || {})[m]))
+        .filter((v) => !Number.isNaN(v));
+      if (vals.length > 0) return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+    }
+    return Number((config.country_rates || {})[country] || 0);
+  };
+
   const save = async () => {
     if (!config) return;
     setSaving(true);
@@ -226,16 +280,33 @@ export default function Admin({ onSaved }) {
             <tbody>
               {Object.entries(config.country_rates || {})
                 .sort(([a], [b]) => a.localeCompare(b))
-                .map(([country, pct]) => (
+                .map(([country, pct]) => {
+                  const members = (config.country_groups || {})[country] || [];
+                  const isGroup = members.length > 0;
+                  const shown = isGroup ? derivedPct(country) : pct;
+                  return (
                   <tr key={country}>
-                    <td className="font-mono-tight">{country}</td>
+                    <td className="font-mono-tight">
+                      {country}
+                      {isGroup && (
+                        <span
+                          className="chip ml-2"
+                          title={`Auto-derived from members: ${members.join(", ")}`}
+                          style={{ fontSize: "0.55rem", padding: "0.1rem 0.4rem" }}
+                        >
+                          AUTO · {members.length} member{members.length > 1 ? "s" : ""}
+                        </span>
+                      )}
+                    </td>
                     <td className="num" style={{ padding: "0.4rem" }}>
                       <input
                         type="number" step="1" min="0" max="100"
                         data-testid={`admin-country-${country.replace(/\s+/g, "-").toLowerCase()}`}
                         className="evcl-input text-right"
-                        style={{ width: "100px" }}
-                        value={pct}
+                        style={{ width: "100px", opacity: isGroup ? 0.55 : 1 }}
+                        value={shown}
+                        disabled={isGroup}
+                        title={isGroup ? "Auto-computed from member countries — edit in the Groups section below." : ""}
                         onChange={(e) => setCountryRate(country, e.target.value)}
                       />
                       <span className="font-mono-tight text-xs text-[#666] ml-1">%</span>
@@ -251,7 +322,7 @@ export default function Admin({ onSaved }) {
                       </button>
                     </td>
                   </tr>
-                ))}
+                );})}
               {(!config.country_rates || Object.keys(config.country_rates).length === 0) && (
                 <tr>
                   <td colSpan={3} className="text-center py-4 font-mono-tight text-xs text-[#666]">
@@ -264,8 +335,122 @@ export default function Admin({ onSaved }) {
         </div>
       </section>
 
+      {/* Country Groups Editor */}
+      <section className="panel p-6 md:p-8" data-testid="admin-groups-panel">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <div className="font-label">Country Groups · Auto-Derived Attainability</div>
+            <div className="font-mono-tight text-xs text-[#666] mt-1 max-w-2xl">
+              Define regions like <strong>ANZ</strong> = <em>Australia + New Zealand</em>. When a group has members, its % in the attainability table is auto-computed as the average of member country %s and becomes read-only.
+            </div>
+          </div>
+          <button
+            data-testid="admin-group-add"
+            type="button"
+            className="btn-secondary"
+            onClick={addGroup}
+          >
+            [ + Add Group ]
+          </button>
+        </div>
+
+        {(() => {
+          const groups = Object.entries(config.country_groups || {}).sort(([a], [b]) => a.localeCompare(b));
+          if (groups.length === 0) {
+            return (
+              <div className="font-mono-tight text-xs text-[#666] text-center py-6 border border-dashed border-[#DCDCCF]">
+                No groups yet. Click <strong>+ Add Group</strong> to define one.
+              </div>
+            );
+          }
+          // Only offer non-group countries as pickable members.
+          const eligibleMembers = Object.keys(config.country_rates || {})
+            .filter((c) => !((config.country_groups || {})[c] || []).length)
+            .sort();
+          return (
+            <div className="space-y-4">
+              {groups.map(([name, members]) => {
+                const derived = derivedPct(name);
+                return (
+                  <div
+                    key={name}
+                    data-testid={`admin-group-${name.replace(/\s+/g, "-").toLowerCase()}`}
+                    className="border border-[#DCDCCF] bg-[#FAFAF5] p-4"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                      <div>
+                        <div className="font-mono-tight text-sm font-semibold">{name}</div>
+                        <div className="font-mono-tight text-xs text-[#666]">
+                          {members.length} member{members.length !== 1 ? "s" : ""} · derived attainability{" "}
+                          <strong data-testid={`admin-group-${name.replace(/\s+/g, "-").toLowerCase()}-derived`}>
+                            {derived}%
+                          </strong>
+                        </div>
+                      </div>
+                      <button
+                        data-testid={`admin-group-remove-${name.replace(/\s+/g, "-").toLowerCase()}`}
+                        type="button"
+                        className="font-mono-tight text-xs text-[#D92D20] underline"
+                        onClick={() => removeGroup(name)}
+                      >
+                        remove group
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {members.length === 0 && (
+                        <span className="font-mono-tight text-xs text-[#666] italic">No members yet — add one below.</span>
+                      )}
+                      {members.map((m) => (
+                        <span
+                          key={m}
+                          data-testid={`admin-group-${name.replace(/\s+/g, "-").toLowerCase()}-member-${m.replace(/\s+/g, "-").toLowerCase()}`}
+                          className="chip"
+                          style={{ background: "#0A0A0A", color: "#fff", fontSize: "0.7rem" }}
+                        >
+                          {m} · {Number((config.country_rates || {})[m] || 0)}%
+                          <button
+                            type="button"
+                            onClick={() => removeMember(name, m)}
+                            className="ml-2 font-mono-tight"
+                            title="Remove member"
+                            style={{ color: "#fff" }}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <select
+                        data-testid={`admin-group-${name.replace(/\s+/g, "-").toLowerCase()}-add-member`}
+                        className="evcl-input"
+                        style={{ maxWidth: "300px" }}
+                        defaultValue=""
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v && !members.includes(v)) {
+                            addMember(name, v);
+                          }
+                          e.target.value = "";
+                        }}
+                      >
+                        <option value="">+ Add member country…</option>
+                        {eligibleMembers
+                          .filter((c) => c !== name && !members.includes(c))
+                          .map((c) => (
+                            <option key={c} value={c}>{c} · {Number((config.country_rates || {})[c] || 0)}%</option>
+                          ))}
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+      </section>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* CPC divisors */}
         <section className="panel p-6 md:p-8">
           <div className="font-label mb-2">CPC Divisors · Contacts per Company</div>
           <div className="font-mono-tight text-xs text-[#666] mb-4">
